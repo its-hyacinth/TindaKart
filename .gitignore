@@ -1,0 +1,13 @@
+# Gradle generated files
+.gradle/
+**/.gradle/
+build/
+*/build/
+
+# IDE (if used)
+.idea/
+*.iml
+
+# macOS
+.DS_Store
+
