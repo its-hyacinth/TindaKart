@@ -1,0 +1,15 @@
+{
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.import.gradle.enabled": true,
+  "java.jdt.ls.java.home": "${env:USERPROFILE}/AppData/Roaming/Cursor/User/globalStorage/pleiades.java-extension-pack-jdk/java/21",
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-21",
+      "path": "${env:USERPROFILE}/AppData/Roaming/Cursor/User/globalStorage/pleiades.java-extension-pack-jdk/java/21",
+      "default": true
+    }
+  ],
+  "java.project.sourcePaths": ["app/src/main/java"],
+  "java.project.outputPath": "app/build/classes/java/main",
+  "java.project.referencedLibraries": ["app/build/libs/**/*.jar"]
+}
