@@ -5,8 +5,18 @@
 package com.ddev.TindaKart;
 
 import components.ImageScaler;
+import java.awt.Color;
+import java.awt.Cursor;
+import java.awt.Font;
+import java.awt.Window;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.math.BigDecimal;
 import java.net.URL;
+import javax.swing.JLabel;
+import javax.swing.JTable;
+import javax.swing.SwingUtilities;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 
 /**
@@ -35,8 +45,66 @@ public class debt extends javax.swing.JPanel {
         initComponents();
         populateTable();
         setupTableListener();
+        setupCustomerNameClickListener();
         URL imageUrl1 = getClass().getResource("/icons/file-textd.png");
         scaler.scaleImage(jLabel8, imageUrl1);
+    }
+
+    private void setupCustomerNameClickListener() {
+        jTable1.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int row = jTable1.rowAtPoint(e.getPoint());
+                int col = jTable1.columnAtPoint(e.getPoint());
+                if (row < 0 || col != 1) {
+                    return;
+                }
+                openCustomerDetail(row);
+            }
+        });
+
+        jTable1.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        jTable1.addMouseMotionListener(new MouseAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                int col = jTable1.columnAtPoint(e.getPoint());
+                if (col == 1) {
+                    jTable1.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                } else {
+                    jTable1.setCursor(Cursor.getDefaultCursor());
+                }
+            }
+        });
+
+        jTable1.getColumnModel().getColumn(1).setCellRenderer(new CustomerNameLinkRenderer());
+    }
+
+    private void openCustomerDetail(int row) {
+        DefaultTableModel model = (DefaultTableModel) jTable1.getModel();
+        int debtId = (Integer) model.getValueAt(row, 0);
+        String nickname = model.getValueAt(row, 1).toString();
+        double amount = Double.parseDouble(model.getValueAt(row, 2).toString());
+        Date debtDate = (Date) model.getValueAt(row, 3);
+
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        DebtCustomerDetailDialog dialog = new DebtCustomerDetailDialog(
+                owner, debtId, nickname, amount, debtDate, this::populateTable);
+        dialog.setVisible(true);
+    }
+
+    private static class CustomerNameLinkRenderer extends DefaultTableCellRenderer {
+        @Override
+        public java.awt.Component getTableCellRendererComponent(JTable table, Object value,
+                boolean isSelected, boolean hasFocus, int row, int column) {
+            JLabel label = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            if (!isSelected) {
+                label.setForeground(new Color(37, 99, 235));
+            }
+            label.setFont(label.getFont().deriveFont(Font.BOLD));
+            label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            label.setText("<html><u>" + value + "</u></html>");
+            return label;
+        }
     }
 
     private void updateDatabase(int id, String column, Object value) {
@@ -367,6 +435,11 @@ public class debt extends javax.swing.JPanel {
             }
         });
         jPanel5.add(myButtonborderless5);
+
+        JLabel clickHint = new JLabel("Tip: Click a customer name to view profile and send SMS payment reminder.");
+        clickHint.setFont(new Font("Segoe UI", Font.ITALIC, 11));
+        clickHint.setForeground(new Color(120, 120, 120));
+        jPanel5.add(clickHint);
 
         jPanel3.add(jPanel5, java.awt.BorderLayout.PAGE_START);
 

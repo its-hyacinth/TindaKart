@@ -79,7 +79,8 @@ public class App {
             ex.printStackTrace();
         }
 
-        // Show splash screen (if any)
+        SampleDataSeeder.seedIfEmpty();
+
         new splash().setVisible(true);
     }
 }

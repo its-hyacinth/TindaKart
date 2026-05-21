@@ -35,8 +35,8 @@ public class splash extends javax.swing.JFrame {
 
         // Set a timer to display the splash screen for 3 seconds
         Timer timer = new Timer(3000, e -> {
-            new home().setVisible(true); // Show the new JFrame
-            this.dispose(); // Close the splash screen
+            new login().setVisible(true);
+            this.dispose();
         });
         timer.setRepeats(false); // Ensure the timer runs only once
         timer.start(); // Start the timer
