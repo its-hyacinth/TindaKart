@@ -4,6 +4,12 @@
 build/
 */build/
 app/build/
+**/build/
+.gradle-user-home/
+
+# PWA frontend generated files
+frontend/node_modules/
+frontend/dist/
 
 # IDE
 .idea/
@@ -15,4 +21,7 @@ app/build/
 
 # macOS
 .DS_Store
+
+# Local environment secrets
+.env
 

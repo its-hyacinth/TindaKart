@@ -11,4 +11,4 @@ plugins {
 }
 
 rootProject.name = "TindaKart"
-include("app")
+include("backend")
