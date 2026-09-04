@@ -24,10 +24,12 @@ import org.springframework.web.server.ResponseStatusException;
 public class TenantManagementController {
     private final JdbcTemplate jdbcTemplate;
     private final TenantAccessService tenantAccessService;
+    private final PackageAccessService packageAccessService;
 
-    public TenantManagementController(JdbcTemplate jdbcTemplate, TenantAccessService tenantAccessService) {
+    public TenantManagementController(JdbcTemplate jdbcTemplate, TenantAccessService tenantAccessService, PackageAccessService packageAccessService) {
         this.jdbcTemplate = jdbcTemplate;
         this.tenantAccessService = tenantAccessService;
+        this.packageAccessService = packageAccessService;
     }
 
     @GetMapping("/super-admin/vendors")
@@ -70,6 +72,10 @@ public class TenantManagementController {
                                                    @Valid @RequestBody StoreRequest request,
                                                    Authentication authentication) {
         requireVendorAccess(authentication, vendorId);
+        long currentStores = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM stores WHERE vendor_id = ?", Long.class, vendorId);
+        if (!packageAccessService.withinLimit(vendorId, "MAX_STORES", currentStores, 1)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Your package store limit has been reached");
+        }
         Long id;
         try {
             id = jdbcTemplate.queryForObject("INSERT INTO stores (vendor_id, name, code, address) "

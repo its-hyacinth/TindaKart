@@ -9,6 +9,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 
 @Configuration
 public class SecurityConfig {
@@ -17,10 +18,11 @@ public class SecurityConfig {
         return config.getAuthenticationManager();
     }
     @Bean SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        http.csrf(csrf -> csrf.disable())
+        CookieCsrfTokenRepository csrfRepository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        http.csrf(csrf -> csrf.csrfTokenRepository(csrfRepository))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/health", "/api/health/database", "/api/auth/login").permitAll()
+                        .requestMatchers("/api/health", "/api/health/database", "/api/auth/login", "/api/auth/csrf").permitAll()
                         .anyRequest().authenticated());
         return http.build();
     }

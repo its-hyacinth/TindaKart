@@ -1,5 +1,24 @@
 # TindaKart PWA Migration Plan
 
+## Implementation verification status
+
+Checked items below mean the capability exists in the repository and has been verified by inspection or build validation. Partial capabilities remain unchecked until the complete workflow and tests exist.
+
+- [x] Module 0: backend and PWA foundations created.
+- [x] Module 1: database-backed authentication foundation created.
+- [x] Multitenant foundation schema created.
+- [x] Vendor/store API foundation created.
+- [x] Backend Java compilation verified successfully.
+- [ ] End-to-end migration and authentication integration tests.
+- [ ] Complete scoped-role and package-feature authorization.
+- [x] Frontend operations screen foundations for POS, Inventory, Catalog, Debt, Deliveries, and Reports.
+- [ ] POS, inventory, debt, delivery, receipts, billing, and reporting workflows.
+- [x] Centralized API error response and server logging foundation added.
+- [x] Desktop sidebar and mobile compact navigation added to the operations shell.
+- [x] Vendor Admin staff controls and business receipt/tax settings UI added.
+- [x] Catalog category and product creation UI added.
+- [x] Subscription package creation, selection, checkout, and billing-history UI foundation added.
+
 ## Purpose
 
 Migrate TindaKart from its current Java Swing desktop application into a responsive Progressive Web App (PWA) that works on:
@@ -109,14 +128,14 @@ The Swing application should remain available as a temporary reference until the
 
 ## Phase 0: Decisions and Scope
 
-- [ ] Confirm whether the PWA will run locally, on a store LAN, or in the cloud.
-- [ ] Confirm whether the system supports one store or multiple stores.
-- [ ] Confirm the vendor-to-store relationship and whether one vendor can have multiple branches.
+- [x] Confirm whether the PWA will run locally, on a store LAN, or in the cloud. (Local development/deployment selected.)
+- [x] Confirm whether the system supports one store or multiple stores. (Multistore selected.)
+- [x] Confirm the vendor-to-store relationship and whether one vendor can have multiple branches. (Vendor can own multiple stores.)
 - [ ] Confirm whether staff may be assigned to multiple stores.
-- [ ] Confirm Super Admin responsibilities and platform ownership.
+- [x] Confirm Super Admin responsibilities and platform ownership.
 - [ ] Confirm vendor onboarding, suspension, and deletion rules.
-- [ ] Confirm package names, prices, limits, inclusions, and feature permissions.
-- [ ] Confirm whether vendors pay TindaKart subscription fees online.
+- [x] Confirm package names, prices, limits, inclusions, and feature permissions as platform-managed data.
+- [x] Confirm that vendors pay TindaKart subscription fees online using a PH sandbox provider during development.
 - [ ] Confirm whether POS customer payments will use PayMongo or remain cash/manual initially.
 - [ ] Confirm the number of simultaneous users and cashiers.
 - [ ] Confirm whether internet loss must be supported.
@@ -164,15 +183,15 @@ No migration should run against the client database without a verified backup an
 
 ## Phase 2: Backend Foundation
 
-- [ ] Create a separate backend service project.
-- [ ] Add environment-based configuration for database credentials.
-- [ ] Add database migrations instead of startup-only schema creation.
-- [ ] Add connection pooling.
-- [ ] Add structured application logging.
-- [ ] Add centralized exception handling.
-- [ ] Add request validation.
-- [ ] Add consistent API response and error formats.
-- [ ] Add health-check endpoint.
+- [x] Create a separate backend service project.
+- [x] Add environment-based configuration for database credentials.
+- [x] Add database migrations instead of startup-only schema creation.
+- [x] Add connection pooling.
+- [x] Add structured application logging foundation.
+- [x] Add centralized exception handling.
+- [x] Add request validation.
+- [x] Add consistent API error response format.
+- [x] Add health-check endpoint.
 - [ ] Add database transaction boundaries in the backend.
 - [ ] Add API documentation.
 - [ ] Add development, test, and production configuration profiles.
@@ -196,18 +215,18 @@ The backend must own these rules:
 
 ## Phase 3: Authentication and Authorization
 
-- [ ] Replace hard-coded accounts with database users.
-- [ ] Hash passwords securely.
-- [ ] Implement login sessions or secure token authentication.
-- [ ] Implement logout and session expiry.
+- [x] Replace hard-coded accounts with database users.
+- [x] Hash passwords securely.
+- [x] Implement login sessions or secure token authentication.
+- [x] Implement logout and session expiry.
 - [ ] Add account activation/deactivation.
 - [ ] Add password change/reset flow.
-- [ ] Add role-based permissions.
-- [ ] Protect admin-only API routes on the backend.
+- [x] Add role-based permissions foundation.
+- [x] Protect implemented admin-only API routes on the backend.
 - [ ] Add login attempt protection.
 - [ ] Add audit logging for login and sensitive actions.
-- [ ] Add platform-level, vendor-level, and store-level scopes.
-- [ ] Ensure package features can restrict role capabilities.
+- [x] Add platform-level, vendor-level, and store-level scope schema.
+- [x] Add package feature and limit schema.
 - [ ] Add a current vendor/store context to authenticated sessions.
 
 ### Role hierarchy and scopes
@@ -265,7 +284,7 @@ All tenant-owned tables must include the appropriate `vendor_id` and/or `store_i
 - `stores`
 - `vendor_users`
 - `store_users`
-- `business_settings`
+- `business_settings` (implemented in V10)
 - `audit_logs`
 
 ### Packages and subscriptions
@@ -292,13 +311,13 @@ Possible package controls include maximum stores, maximum staff, product limits,
 
 ### Products and inventory
 
-- `categories`
-- `products`
-- `product_barcodes`
+- `categories` (implemented in V5)
+- `products` (implemented in V5)
+- `product_barcodes` (implemented in V5)
 - `product_prices`
-- `inventory_batches`
-- `inventory_movements`
-- `stock_adjustments`
+- `inventory_batches` (implemented in V6)
+- `inventory_movements` (implemented in V6)
+- `stock_adjustments` (represented by adjustment movements in V6; dedicated table pending)
 
 Important product concepts:
 
@@ -319,11 +338,11 @@ Expiration dates should belong to inventory batches because the same product can
 
 ### Sales and receipts
 
-- `sales`
-- `sale_items`
-- `payments`
+- `sales` (implemented in V7)
+- `sale_items` (implemented in V7)
+- `payments` (implemented in V7)
 - `discounts`
-- `receipts`
+- `receipts` (implemented in V7)
 
 Each sale should record:
 
@@ -340,21 +359,21 @@ Each sale should record:
 
 ### Debt and credit
 
-- `debt_accounts`
-- `credit_sales`
-- `debt_payments`
-- `debt_payment_allocations`
-- `customer_profiles`
+- `debt_accounts` (implemented in V8)
+- `credit_sales` (implemented in V8)
+- `debt_payments` (implemented in V8)
+- `debt_payment_allocations` (implemented in V8)
+- `customer_profiles` (implemented in V8)
 
 This supports total credit, total paid, remaining balance, payment history, due dates, and overdue status.
 
 ### Suppliers and delivery
 
-- `suppliers`
-- `purchase_orders`
-- `purchase_order_items`
-- `deliveries`
-- `delivery_items`
+- `suppliers` (implemented in V9)
+- `purchase_orders` (pending)
+- `purchase_order_items` (pending)
+- `deliveries` (implemented in V9)
+- `delivery_items` (implemented in V9)
 
 Delivery lifecycle:
 
@@ -367,7 +386,7 @@ Receiving a delivery should create inventory movement records automatically.
 ### Payment provider records
 
 - `payment_provider_customers`
-- `payment_provider_checkout_sessions`
+- `subscription_checkout_sessions` (implemented in V11)
 - `payment_provider_events`
 - `payment_provider_refunds`
 
@@ -381,21 +400,21 @@ Example API areas:
 
 - `/auth`
 - `/users`
-- `/categories`
-- `/products`
-- `/products/barcode/{barcode}`
-- `/inventory`
-- `/inventory/receive`
-- `/inventory/adjustments`
-- `/sales`
-- `/sales/{id}/receipt`
-- `/payments`
-- `/debt-accounts`
-- `/debt-accounts/{id}/payments`
-- `/suppliers`
-- `/deliveries`
-- `/reports`
-- `/settings`
+- `/categories` (vendor-scoped implementation)
+- `/products` (vendor-scoped implementation)
+- `/products/barcode/{barcode}` (vendor-scoped implementation)
+- `/inventory` (store-scoped batch listing foundation)
+- `/inventory/receive` (store-scoped receiving foundation)
+- `/inventory/adjustments` (store-scoped adjustment foundation)
+- `/sales` (completed-sale transaction foundation)
+- `/sales/{id}/receipt` (receipt preview and print-status API foundation)
+- `/payments` (recorded within sale transaction)
+- `/debt-accounts` (vendor-scoped API foundation)
+- `/debt-accounts/{id}/payments` (payment history and allocation foundation)
+- `/suppliers` (vendor-scoped API foundation)
+- `/deliveries` (store-scoped lifecycle and receiving API foundation)
+- `/reports` (store-scoped sales, low-stock, and expiration API foundation)
+- `/settings` (vendor business/tax settings API foundation)
 - `/super-admin/vendors`
 - `/super-admin/packages`
 - `/super-admin/subscriptions`
@@ -408,18 +427,19 @@ The backend must validate the authenticated user's vendor/store scope for every 
 
 ## Phase 5A: Vendor, Store, Package, and Subscription Management
 
-- [ ] Build Super Admin vendor management.
+- [x] Build Super Admin vendor management API foundation.
 - [ ] Build vendor onboarding and activation flow.
 - [ ] Build vendor suspension/reactivation flow.
-- [ ] Build vendor store/branch management.
-- [ ] Build Vendor Admin staff management.
-- [ ] Build store assignment for staff.
-- [ ] Build package management for Super Admin.
-- [ ] Add package prices, features, and limits.
-- [ ] Build vendor package selection.
-- [ ] Add subscription status: trial, active, past due, suspended, cancelled.
-- [ ] Enforce package limits in the backend.
+- [x] Build vendor store/branch management API foundation.
+- [x] Build Vendor Admin staff management API foundation.
+- [x] Build store assignment for staff API foundation.
+- [x] Build package management API foundation for Super Admin.
+- [x] Add package prices, features, and limits API support.
+- [x] Build vendor package selection API foundation.
+- [x] Add subscription status: trial, active, past due, suspended, cancelled.
+- [x] Enforce package feature gates and initial numeric limits in the backend (stores, staff, and products).
 - [ ] Hide or disable unavailable PWA modules based on package features.
+- [x] Add initial Vendor Admin staff and business-settings management UI.
 - [ ] Add vendor-level and store-level audit events.
 
 ## Phase 5B: PayMongo Subscription Billing
@@ -443,17 +463,17 @@ Package features and limits are enforced
 ```
 
 - [ ] Create a payment-provider abstraction so PayMongo can be replaced later.
-- [ ] Store PayMongo secret keys only in backend environment configuration.
-- [ ] Never expose secret keys to the PWA.
-- [ ] Create subscription checkout sessions from the backend.
-- [ ] Store provider transaction and checkout IDs.
-- [ ] Implement verified webhook handling.
-- [ ] Make webhook processing idempotent.
-- [ ] Handle successful, failed, cancelled, and expired payments.
-- [ ] Update subscription status from verified provider events.
+- [x] Store PayMongo secret keys only in backend environment configuration.
+- [x] Never expose secret keys to the PWA.
+- [x] Create subscription checkout sessions from the backend.
+- [x] Store provider checkout IDs.
+- [x] Implement verified webhook handling foundation.
+- [x] Make webhook processing idempotent.
+- [x] Handle successful, failed, cancelled, and expired payments in the webhook foundation.
+- [x] Update subscription status from verified provider events in the webhook foundation.
 - [ ] Add refund/cancellation handling.
-- [ ] Add billing history for Super Admin and Vendor Admin.
-- [ ] Use PayMongo sandbox/test transactions during development.
+- [x] Add billing history for Vendor Admin; Super Admin package controls are available.
+- [x] Configure PayMongo sandbox/test transactions for development.
 - [ ] Confirm PayMongo account activation and supported payment methods before production.
 
 PayMongo subscription billing is separate from store POS payments. POS can initially support cash and manually recorded payment methods. Online customer payments can be added later.
@@ -503,18 +523,18 @@ Create inventory movement
 
 ## Phase 6: PWA Frontend Foundation
 
-- [ ] Create a responsive application shell.
-- [ ] Add desktop sidebar navigation.
-- [ ] Add mobile bottom navigation or compact menu.
-- [ ] Add responsive breakpoints.
+- [x] Create a responsive application shell foundation.
+- [x] Add desktop sidebar navigation.
+- [x] Add mobile compact menu navigation.
+- [x] Add responsive breakpoints.
 - [ ] Add loading states.
 - [ ] Add error states.
 - [ ] Add empty states.
-- [ ] Add reusable buttons, inputs, dialogs, tables, badges, and cards.
-- [ ] Add authentication state handling.
-- [ ] Add protected routes.
-- [ ] Add installable PWA manifest.
-- [ ] Add service worker.
+- [x] Add reusable buttons, inputs, tables, badges, and cards foundation.
+- [x] Add authentication state handling.
+- [x] Add protected application view/authentication gate.
+- [x] Add installable PWA manifest.
+- [x] Add service worker.
 - [ ] Add app icons and splash assets.
 - [ ] Configure HTTPS for deployed environments.
 - [ ] Add responsive testing for laptop, tablet, Android, and iOS browser sizes.
@@ -530,34 +550,35 @@ Create inventory movement
 
 ## Phase 7: POS Implementation
 
-- [ ] Add product search.
-- [ ] Add category filter.
+- [x] Add product search.
+- [x] Add category filter.
 - [ ] Add A–Z sorting.
-- [ ] Add product cards or organized product list.
-- [ ] Add barcode input for USB/Bluetooth keyboard-style scanners.
-- [ ] Add camera scanning for supported mobile devices.
-- [ ] Add cart item quantity controls.
-- [ ] Add piece/unit display.
-- [ ] Add bulk pricing and quantity thresholds.
-- [ ] Display item subtotal.
-- [ ] Display transaction subtotal.
-- [ ] Display discount.
-- [ ] Display VAT only when configured.
-- [ ] Display total clearly.
-- [ ] Add payment method.
-- [ ] Add amount tendered and change.
+- [x] Add product cards or organized product list.
+- [x] Add product creation form with piece/bulk and expiration fields.
+- [x] Add barcode input for USB/Bluetooth keyboard-style scanners.
+- [x] Add camera scanning foundation for supported mobile devices.
+- [x] Add cart item quantity controls.
+- [x] Add piece/unit display.
+- [x] Add bulk pricing and quantity thresholds backend/frontend foundation.
+- [x] Display item subtotal.
+- [x] Display transaction subtotal.
+- [x] Display discount.
+- [x] Display VAT only when configured on the backend transaction.
+- [x] Display total clearly.
+- [x] Add payment method.
+- [x] Add amount tendered and change.
 - [ ] Add remove item and void transaction controls.
 - [ ] Add insufficient-stock validation.
-- [ ] Add expired-product blocking.
-- [ ] Add successful sale confirmation.
+- [x] Add expired-product blocking.
+- [x] Add successful sale confirmation.
 - [ ] Add receipt preview and printing.
 
 ## Phase 8: Inventory and Expiration
 
-- [ ] Create a dedicated inventory dashboard.
+- [x] Create a dedicated inventory dashboard foundation.
 - [ ] Show name, barcode, category, unit, quantity, prices, expiration, and status.
-- [ ] Add stock receiving.
-- [ ] Add stock adjustment with required reason.
+- [x] Add stock receiving.
+- [x] Add stock adjustment with required reason.
 - [ ] Add inventory movement history.
 - [ ] Add low-stock warnings.
 - [ ] Add near-expiration section.
@@ -571,52 +592,53 @@ Create inventory movement
 
 - [ ] Confirm business name, address, TIN, VAT status, and receipt requirements.
 - [ ] Design receipt/invoice layout with the owner.
-- [ ] Add receipt numbering.
-- [ ] Add subtotal, discount, VAT, and total fields.
-- [ ] Add payment and change details.
-- [ ] Support print preview.
+- [x] Add receipt numbering.
+- [x] Add subtotal, discount, VAT, and total fields.
+- [x] Add payment and change details.
+- [x] Support browser print preview foundation.
 - [ ] Test the selected thermal printer.
 - [ ] Decide between browser printing, local print bridge, or desktop print helper.
-- [ ] Add controlled reprint capability.
-- [ ] Store generated receipt metadata.
+- [x] Add controlled reprint capability.
+- [x] Store generated receipt metadata.
 
 Do not add VAT until the business tax setup is confirmed.
 
 ## Phase 10: Debt and Credit
 
-- [ ] Create a debt dashboard.
-- [ ] Show total credit, total paid, and balance.
-- [ ] Show due date and account status.
-- [ ] Record credit sales from POS.
-- [ ] Record full and partial payments.
-- [ ] Show payment history.
+- [x] Create a debt dashboard foundation.
+- [x] Show total credit, total paid, and balance.
+- [x] Show due date and account status API foundation.
+- [x] Record credit sales from POS.
+- [x] Record full and partial payments API foundation.
+- [x] Show payment history API foundation.
 - [ ] Add payment receipt.
-- [ ] Add customer search.
+- [x] Add customer search.
 - [ ] Add debt aging report.
 - [ ] Add SMS/reminder integration only if required.
 
 ## Phase 11: Delivery
 
-- [ ] Add supplier management.
-- [ ] Add delivery creation.
-- [ ] Add expected delivery date.
-- [ ] Add products and quantities.
-- [ ] Add delivery status.
+- [x] Add supplier management API foundation.
+- [x] Add delivery creation API foundation.
+- [x] Add delivery creation and supplier selection UI.
+- [x] Add expected delivery date.
+- [x] Add products and quantities.
+- [x] Add delivery status.
 - [ ] Add received, missing, and damaged quantities.
-- [ ] Update inventory when delivery is received.
-- [ ] Add upcoming deliveries dashboard.
-- [ ] Add delivery history.
+- [x] Update inventory when delivery is received.
+- [x] Add upcoming deliveries dashboard foundation.
+- [x] Add delivery history API foundation.
 
 ## Phase 12: Reporting
 
-- [ ] Daily sales.
-- [ ] Weekly sales.
-- [ ] Monthly sales.
+- [x] Daily sales API foundation.
+- [x] Weekly sales API foundation.
+- [x] Monthly sales API foundation.
 - [ ] Best-selling products.
-- [ ] Low-stock products.
-- [ ] Expired products.
-- [ ] Near-expiration products.
-- [ ] Debt balances.
+- [x] Low-stock products API foundation.
+- [x] Expired products API foundation.
+- [x] Near-expiration products API foundation.
+- [x] Debt balances API foundation.
 - [ ] Payments collected.
 - [ ] Delivery history.
 - [ ] Profit estimate.
@@ -627,10 +649,10 @@ Do not add VAT until the business tax setup is confirmed.
 
 ### Unit tests
 
-- [ ] Pricing calculations.
-- [ ] Piece and bulk pricing.
-- [ ] Discounts.
-- [ ] VAT calculations.
+- [x] Pricing calculations.
+- [x] Piece and bulk pricing.
+- [x] Discounts.
+- [x] VAT calculations.
 - [ ] Debt balances.
 - [ ] Expiration rules.
 - [ ] Role permissions.

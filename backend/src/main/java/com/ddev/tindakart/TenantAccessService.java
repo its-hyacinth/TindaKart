@@ -30,9 +30,41 @@ public class TenantAccessService {
                     (rs, rowNum) -> store(rs));
         }
         return jdbcTemplate.query("SELECT DISTINCT s.id, s.vendor_id, s.name, s.code FROM stores s "
-                + "JOIN store_user_roles sur ON sur.store_id = s.id "
-                + "JOIN users u ON u.id = sur.user_id WHERE LOWER(u.username) = LOWER(?) ORDER BY s.name",
-                (rs, rowNum) -> store(rs), authentication.getName());
+                + "WHERE EXISTS (SELECT 1 FROM vendor_user_roles vur JOIN users vu ON vu.id = vur.user_id "
+                + "JOIN roles vr ON vr.id = vur.role_id WHERE vur.vendor_id = s.vendor_id "
+                + "AND LOWER(vu.username) = LOWER(?) AND vr.name = 'VENDOR_ADMIN') "
+                + "OR EXISTS (SELECT 1 FROM store_user_roles sur JOIN users su ON su.id = sur.user_id "
+                + "WHERE sur.store_id = s.id AND LOWER(su.username) = LOWER(?)) ORDER BY s.name",
+                (rs, rowNum) -> store(rs), authentication.getName(), authentication.getName());
+    }
+
+    public boolean hasVendorRole(Authentication authentication, Long vendorId, String roleName) {
+        if (hasRole(authentication, "ROLE_SUPER_ADMIN")) return true;
+        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM vendor_user_roles vur "
+                + "JOIN users u ON u.id = vur.user_id JOIN roles r ON r.id = vur.role_id "
+                + "WHERE vur.vendor_id = ? AND LOWER(u.username) = LOWER(?) AND r.name = ?",
+                Integer.class, vendorId, authentication.getName(), roleName);
+        return count != null && count > 0;
+    }
+
+    public boolean hasStoreAccess(Authentication authentication, Long storeId) {
+        if (hasRole(authentication, "ROLE_SUPER_ADMIN")) return true;
+        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM stores s WHERE s.id = ? AND "
+                + "(EXISTS (SELECT 1 FROM vendor_user_roles vur WHERE vur.vendor_id = s.vendor_id "
+                + "AND vur.user_id = (SELECT id FROM users WHERE LOWER(username) = LOWER(?))) "
+                + "OR EXISTS (SELECT 1 FROM store_user_roles sur WHERE sur.store_id = s.id "
+                + "AND sur.user_id = (SELECT id FROM users WHERE LOWER(username) = LOWER(?))))",
+                Integer.class, storeId, authentication.getName(), authentication.getName());
+        return count != null && count > 0;
+    }
+
+    public boolean hasStoreRole(Authentication authentication, Long storeId, String roleName) {
+        if (hasRole(authentication, "ROLE_SUPER_ADMIN")) return true;
+        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM store_user_roles sur "
+                + "JOIN users u ON u.id = sur.user_id JOIN roles r ON r.id = sur.role_id "
+                + "WHERE sur.store_id = ? AND LOWER(u.username) = LOWER(?) AND r.name = ?",
+                Integer.class, storeId, authentication.getName(), roleName);
+        return count != null && count > 0;
     }
 
     private StoreAccess store(java.sql.ResultSet rs) throws java.sql.SQLException {

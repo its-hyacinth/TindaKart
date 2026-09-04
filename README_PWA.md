@@ -38,6 +38,24 @@ npm run dev
 
 The PWA runs at `http://localhost:5173` and proxies `/api` requests to the backend.
 
+## Migrations
+
+Flyway runs automatically when the backend starts. The current local database has migrations V1 through V11 applied. Versioned migrations are forward-only; do not add `DROP TABLE` statements to reset a client database.
+
+Implemented API foundations include:
+
+- `/api/super-admin/vendors` and `/api/vendors/{vendorId}/stores`
+- `/api/vendors/{vendorId}/staff`
+- `/api/super-admin/packages` and vendor subscriptions
+- `/api/vendors/{vendorId}/categories` and products/barcodes
+- Store inventory receiving, adjustments, and batch status
+- Atomic POS sales, payments, credit sales, and receipts
+- Debt accounts and payment allocation
+- Suppliers and delivery receiving
+- Business/tax settings, reports, and PayMongo checkout/webhooks
+
+The current PWA includes responsive operations tabs for POS, Catalog, Inventory, Debt, Deliveries, and Reports. Hardware camera scanning, thermal printing, advanced exports, and production billing activation still require acceptance testing and configuration.
+
 ## Important
 
 The current root `.env` is intentionally local and ignored by Git. Do not commit it. Use `.env.example` as the template for another machine.
@@ -51,4 +69,4 @@ INITIAL_ADMIN_USERNAME=admin
 INITIAL_ADMIN_PASSWORD=choose-a-strong-local-password
 ```
 
-When the `users` table is empty, the backend creates this account with the `OWNER` role. It does not overwrite existing users on later starts. Change or remove these values after the first account is created.
+When the `users` table is empty, the backend creates this account with the `SUPER_ADMIN` role. It does not overwrite existing users on later starts. Change or remove these values after the first account is created.
