@@ -22,11 +22,11 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/vendors/{vendorId}/suppliers")
 public class SupplierController {
     private final JdbcTemplate jdbcTemplate;
-    private final TenantAccessService tenantAccessService;
+    private final PermissionAccessService permissionAccessService;
 
-    public SupplierController(JdbcTemplate jdbcTemplate, TenantAccessService tenantAccessService) {
+    public SupplierController(JdbcTemplate jdbcTemplate, PermissionAccessService permissionAccessService) {
         this.jdbcTemplate = jdbcTemplate;
-        this.tenantAccessService = tenantAccessService;
+        this.permissionAccessService = permissionAccessService;
     }
 
     @GetMapping
@@ -50,10 +50,7 @@ public class SupplierController {
     }
 
     private void requireAccess(Long vendorId, Authentication authentication, boolean write) {
-        if (authentication.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN"))
-                || tenantAccessService.hasVendorRole(authentication, vendorId, "VENDOR_ADMIN")) return;
-        if (!write && tenantAccessService.vendorsFor(authentication).stream().anyMatch(v -> v.id().equals(vendorId))) return;
-        throw new AccessDeniedException("Supplier access is required");
+        permissionAccessService.requireVendor(authentication, vendorId, "DELIVERY_MANAGE");
     }
 
     private String blankToNull(String value) { return value == null || value.isBlank() ? null : value.trim(); }

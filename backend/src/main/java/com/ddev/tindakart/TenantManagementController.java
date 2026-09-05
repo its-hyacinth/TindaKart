@@ -25,11 +25,14 @@ public class TenantManagementController {
     private final JdbcTemplate jdbcTemplate;
     private final TenantAccessService tenantAccessService;
     private final PackageAccessService packageAccessService;
+    private final AuditService auditService;
 
-    public TenantManagementController(JdbcTemplate jdbcTemplate, TenantAccessService tenantAccessService, PackageAccessService packageAccessService) {
+    public TenantManagementController(JdbcTemplate jdbcTemplate, TenantAccessService tenantAccessService, PackageAccessService packageAccessService,
+                                      AuditService auditService) {
         this.jdbcTemplate = jdbcTemplate;
         this.tenantAccessService = tenantAccessService;
         this.packageAccessService = packageAccessService;
+        this.auditService = auditService;
     }
 
     @GetMapping("/super-admin/vendors")
@@ -45,6 +48,7 @@ public class TenantManagementController {
         requireRole(authentication, "ROLE_SUPER_ADMIN");
         Long id = jdbcTemplate.queryForObject(
                 "INSERT INTO vendors (name) VALUES (?) RETURNING id", Long.class, request.name().trim());
+        auditService.record(authentication.getName(), "VENDOR_CREATED", "VENDOR", id.toString(), request.name().trim());
         return ResponseEntity.status(HttpStatus.CREATED).body(findVendor(id));
     }
 
@@ -57,6 +61,7 @@ public class TenantManagementController {
         int updated = jdbcTemplate.update("UPDATE vendors SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 request.status(), vendorId);
         if (updated == 0) throw notFound("Vendor not found");
+        auditService.record(authentication.getName(), "VENDOR_STATUS_CHANGED", "VENDOR", vendorId.toString(), request.status());
         return findVendor(vendorId);
     }
 
@@ -84,6 +89,7 @@ public class TenantManagementController {
         } catch (org.springframework.dao.DuplicateKeyException ex) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Store code already exists for this vendor");
         }
+        auditService.record(authentication.getName(), "STORE_CREATED", "STORE", id.toString(), request.name().trim());
         return ResponseEntity.status(HttpStatus.CREATED).body(findStore(vendorId, id));
     }
 
@@ -98,6 +104,7 @@ public class TenantManagementController {
         int updated = jdbcTemplate.update("UPDATE stores SET status = ?, updated_at = CURRENT_TIMESTAMP "
                 + "WHERE id = ? AND vendor_id = ?", request.status(), storeId, vendorId);
         if (updated == 0) throw notFound("Store not found");
+        auditService.record(authentication.getName(), "STORE_STATUS_CHANGED", "STORE", storeId.toString(), request.status());
         return findStore(vendorId, storeId);
     }
 

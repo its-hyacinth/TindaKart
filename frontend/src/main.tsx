@@ -2,16 +2,25 @@ import { StrictMode, useEffect, useState, type FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { authApi, tenantApi, type CurrentUser, type Store, type Vendor } from './api'
 import { OperationsWorkspace } from './operations'
-import { AdminWorkspace } from './admin'
+import { AccountSecurity, AdminWorkspace } from './admin'
 import './styles.css'
 
 function App() {
   const [user, setUser] = useState<CurrentUser | null>(null)
   const [checkingSession, setCheckingSession] = useState(true)
   const [error, setError] = useState('')
+  const [online, setOnline] = useState(() => navigator.onLine)
 
   useEffect(() => {
     authApi.me().then(setUser).catch(() => undefined).finally(() => setCheckingSession(false))
+  }, [])
+
+  useEffect(() => {
+    const onlineEvent = () => setOnline(true)
+    const offlineEvent = () => setOnline(false)
+    window.addEventListener('online', onlineEvent)
+    window.addEventListener('offline', offlineEvent)
+    return () => { window.removeEventListener('online', onlineEvent); window.removeEventListener('offline', offlineEvent) }
   }, [])
 
   if (checkingSession) return <main className="centered"><p>Checking session…</p></main>
@@ -26,9 +35,11 @@ function App() {
     <section className="status-card" aria-live="polite">
       <div><span className="status-dot" /><strong>Signed in as {user.username}</strong></div>
       <p>Role: {user.roles.join(', ') || 'No role assigned'}</p>
+      {!online && <p className="offline-banner" role="alert">You are offline. Changes require an internet connection and will not be submitted until connectivity returns.</p>}
       <button className="secondary-button" onClick={() => authApi.logout().then(() => setUser(null))}>Sign out</button>
     </section>
     <TenantDashboard user={user} />
+    <AccountSecurity onSignedOut={() => setUser(null)} />
     <AdminWorkspace user={user} />
     <OperationsWorkspace user={user} />
     <section className="next-grid">
@@ -51,36 +62,76 @@ function TenantDashboard({ user }: { user: CurrentUser }) {
 
   useEffect(() => {
     if (!isSuperAdmin) return
-    tenantApi.vendors().then(items => { setVendors(items); setSelectedVendor(items[0]?.id ?? 0) }).catch(() => undefined)
+    tenantApi.vendors().then(items => { setVendors(items); setSelectedVendor(items[0]?.id ?? 0) }).catch(error => setMessage(error.message))
   }, [isSuperAdmin])
 
   useEffect(() => {
     if (!selectedVendor) return
-    tenantApi.stores(selectedVendor).then(setStores).catch(() => undefined)
+    tenantApi.stores(selectedVendor).then(setStores).catch(error => setMessage(error.message))
   }, [selectedVendor])
 
   async function addVendor(event: FormEvent) {
-    event.preventDefault(); setMessage('')
-    try { const vendor = await tenantApi.createVendor(vendorName); setVendors(items => [...items, vendor]); setVendorName(''); setSelectedVendor(vendor.id); setMessage('Vendor created.') }
-    catch (error) { setMessage(error instanceof Error ? error.message : 'Unable to create vendor.') }
+    event.preventDefault()
+    setMessage('')
+    try {
+      const vendor = await tenantApi.createVendor(vendorName)
+      setVendors(items => [...items, vendor])
+      setVendorName('')
+      setSelectedVendor(vendor.id)
+      setMessage('Vendor created.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to create vendor.')
+    }
   }
 
   async function addStore(event: FormEvent) {
-    event.preventDefault(); setMessage('')
-    try { const store = await tenantApi.createStore(selectedVendor, storeName, storeCode, ''); setStores(items => [...items, store]); setStoreName(''); setStoreCode(''); setMessage('Store created.') }
-    catch (error) { setMessage(error instanceof Error ? error.message : 'Unable to create store.') }
+    event.preventDefault()
+    setMessage('')
+    try {
+      const store = await tenantApi.createStore(selectedVendor, storeName, storeCode, '')
+      setStores(items => [...items, store])
+      setStoreName('')
+      setStoreCode('')
+      setMessage('Store created.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to create store.')
+    }
   }
 
-  return <section className="tenant-panel">
-    <div className="section-heading"><div><span className="eyebrow">Module 5A</span><h2>Business workspace</h2></div><span className="scope-badge">{isSuperAdmin ? 'Platform scope' : 'Assigned stores'}</span></div>
-    {isSuperAdmin && <form className="inline-form" onSubmit={addVendor}><input placeholder="New vendor name" value={vendorName} onChange={event => setVendorName(event.target.value)} required /><button className="primary-button compact">Add vendor</button></form>}
-    <label className="select-label">Vendor<select value={selectedVendor} onChange={event => setSelectedVendor(Number(event.target.value))} disabled={!vendors.length}><option value={0}>Select vendor</option>{vendors.map(vendor => <option key={vendor.id} value={vendor.id}>{vendor.name} · {vendor.status}</option>)}</select></label>
-    {selectedVendor > 0 && <form className="inline-form" onSubmit={addStore}><input placeholder="Branch name" value={storeName} onChange={event => setStoreName(event.target.value)} required /><input placeholder="Code" value={storeCode} onChange={event => setStoreCode(event.target.value)} required /><button className="primary-button compact">Add store</button></form>}
-    {message && <p className="form-message">{message}</p>}
-    <div className="store-list">{stores.filter(store => !selectedVendor || store.vendorId === selectedVendor).map(store => <div className="store-row" key={store.id}><strong>{store.name}</strong><span>{store.code} · {store.status}</span></div>)}{!stores.length && <p className="muted">No stores found for this vendor yet.</p>}</div>
-  </section>
-}
+  async function toggleVendorStatus(vendor: Vendor) {
+    const nextStatus = vendor.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE'
+    try {
+      const updated = await tenantApi.vendorStatus(vendor.id, nextStatus)
+      setVendors(items => items.map(item => item.id === updated.id ? updated : item))
+      setMessage(`Vendor ${updated.name} is now ${updated.status.toLowerCase()}.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to update vendor status.')
+    }
+  }
 
+  async function toggleStoreStatus(store: Store) {
+    const nextStatus = store.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
+    try {
+      const updated = await tenantApi.storeStatus(store.vendorId, store.id, nextStatus)
+      setStores(items => items.map(item => item.id === updated.id ? updated : item))
+      setMessage(`Store ${updated.name} is now ${updated.status.toLowerCase()}.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to update store status.')
+    }
+  }
+
+  return (
+    <section className="tenant-panel">
+      <div className="section-heading"><div><span className="eyebrow">Module 5A</span><h2>Business workspace</h2></div><span className="scope-badge">{isSuperAdmin ? 'Platform scope' : 'Assigned stores'}</span></div>
+      {isSuperAdmin && <form className="inline-form" onSubmit={addVendor}><input placeholder="New vendor name" value={vendorName} onChange={event => setVendorName(event.target.value)} required /><button className="primary-button compact">Add vendor</button></form>}
+      <label className="select-label">Vendor<select value={selectedVendor} onChange={event => setSelectedVendor(Number(event.target.value))} disabled={!vendors.length}><option value={0}>Select vendor</option>{vendors.map(vendor => <option key={vendor.id} value={vendor.id}>{vendor.name} · {vendor.status}</option>)}</select></label>
+      {isSuperAdmin && selectedVendor > 0 && <div className="store-row"><span>Vendor status: <strong>{vendors.find(vendor => vendor.id === selectedVendor)?.status ?? 'UNKNOWN'}</strong></span>{(() => { const vendor = vendors.find(item => item.id === selectedVendor); return vendor && vendor.status !== 'CANCELLED' ? <button type="button" className="secondary-button compact" onClick={() => toggleVendorStatus(vendor)}>{vendor.status === 'ACTIVE' ? 'Suspend vendor' : 'Activate vendor'}</button> : null })()}</div>}
+      {selectedVendor > 0 && <form className="inline-form" onSubmit={addStore}><input placeholder="Branch name" value={storeName} onChange={event => setStoreName(event.target.value)} required /><input placeholder="Code" value={storeCode} onChange={event => setStoreCode(event.target.value)} required /><button className="primary-button compact">Add store</button></form>}
+      {message && <p className="form-message">{message}</p>}
+      <div className="store-list">{stores.filter(store => !selectedVendor || store.vendorId === selectedVendor).map(store => <div className="store-row" key={store.id}><span><strong>{store.name}</strong><small className="muted"> {store.code} · {store.status}</small></span><button type="button" className="secondary-button compact" onClick={() => toggleStoreStatus(store)}>{store.status === 'ACTIVE' ? 'Disable' : 'Enable'}</button></div>)}{!stores.length && <p className="muted">No stores found for this vendor yet.</p>}</div>
+    </section>
+  )
+}
 function Login({ onLogin, onError, error }: { onLogin: (user: CurrentUser) => void; onError: (message: string) => void; error: string }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')

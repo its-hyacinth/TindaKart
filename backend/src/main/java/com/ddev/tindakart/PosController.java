@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -15,7 +16,6 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,15 +29,17 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/vendors/{vendorId}/stores/{storeId}/sales")
 public class PosController {
     private final JdbcTemplate jdbcTemplate;
-    private final TenantAccessService tenantAccessService;
     private final PackageAccessService packageAccessService;
     private final PricingService pricingService;
+    private final PermissionAccessService permissionAccessService;
 
-    public PosController(JdbcTemplate jdbcTemplate, TenantAccessService tenantAccessService, PackageAccessService packageAccessService, PricingService pricingService) {
+    public PosController(JdbcTemplate jdbcTemplate, PackageAccessService packageAccessService,
+                         PricingService pricingService,
+                         PermissionAccessService permissionAccessService) {
         this.jdbcTemplate = jdbcTemplate;
-        this.tenantAccessService = tenantAccessService;
         this.packageAccessService = packageAccessService;
         this.pricingService = pricingService;
+        this.permissionAccessService = permissionAccessService;
     }
 
     @PostMapping
@@ -61,15 +63,17 @@ public class PosController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Customer does not belong to this vendor");
         }
         Long cashierId = userId(authentication);
+        SalePricingSettings saleSettings = salePricingSettings(vendorId);
         List<PreparedLine> lines = new ArrayList<>();
-        for (SaleLineRequest line : request.items()) lines.add(prepareLine(vendorId, storeId, line));
-        BigDecimal subtotal = lines.stream().map(PreparedLine::subtotal).reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2, RoundingMode.HALF_UP);
-        BigDecimal discount = pricingService.money(request.discountAmount());
+        for (SaleLineRequest line : request.items()) lines.add(prepareLine(vendorId, storeId, line, saleSettings));
+        BigDecimal subtotal = lines.stream().map(PreparedLine::baseSubtotal).reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal automaticDiscount = lines.stream().map(line -> line.baseSubtotal().subtract(line.subtotal()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal discount = automaticDiscount.add(pricingService.money(request.discountAmount())).setScale(2, RoundingMode.HALF_UP);
         BigDecimal taxable;
         try { taxable = pricingService.discountedSubtotal(subtotal, discount); }
         catch (IllegalArgumentException ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage()); }
-        TaxSettings tax = taxSettings(vendorId);
-        BigDecimal vat = pricingService.vat(taxable, tax.vatRegistered(), tax.vatRate());
+        BigDecimal vat = pricingService.vat(taxable, saleSettings.vatRegistered(), saleSettings.vatRate());
         BigDecimal total = taxable.add(vat).setScale(2, RoundingMode.HALF_UP);
         BigDecimal tendered = creditSale ? null : (request.amountTendered() == null ? total : money(request.amountTendered()));
         if (!creditSale && tendered.compareTo(total) < 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Amount tendered is insufficient");
@@ -104,7 +108,31 @@ public class PosController {
         return new SaleView(saleId, receiptNumber, subtotal, discount, vat, total, request.paymentMethod(), tendered, change);
     }
 
-    private PreparedLine prepareLine(Long vendorId, Long storeId, SaleLineRequest request) {
+    @PostMapping("/{saleId}/void")
+    @Transactional
+    public SaleView voidSale(@PathVariable Long vendorId, @PathVariable Long storeId, @PathVariable Long saleId,
+                             Authentication authentication) {
+        requirePosAccess(vendorId, storeId, authentication);
+        packageAccessService.requireFeature(authentication, vendorId, "POS");
+        String status = jdbcTemplate.query("SELECT status FROM sales WHERE id = ? AND vendor_id = ? AND store_id = ? FOR UPDATE",
+                (rs, rowNum) -> rs.getString("status"), saleId, vendorId, storeId).stream().findFirst()
+                .orElseThrow(() -> notFound("Sale not found"));
+        if (!"COMPLETED".equals(status)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Only completed sales can be voided");
+        Long userId = userId(authentication);
+        List<SoldLine> lines = jdbcTemplate.query("SELECT product_id, batch_id, quantity FROM sale_items WHERE sale_id = ? FOR UPDATE",
+                (rs, rowNum) -> new SoldLine(rs.getLong("product_id"), rs.getLong("batch_id"), rs.getBigDecimal("quantity")), saleId);
+        for (SoldLine line : lines) {
+            jdbcTemplate.update("UPDATE inventory_batches SET quantity_on_hand = quantity_on_hand + ? WHERE id = ? AND vendor_id = ? AND store_id = ?",
+                    line.quantity(), line.batchId(), vendorId, storeId);
+            jdbcTemplate.update("INSERT INTO inventory_movements (vendor_id, store_id, product_id, batch_id, movement_type, quantity_delta, reason, reference_type, reference_id, created_by) VALUES (?, ?, ?, ?, 'VOID', ?, 'Voided POS sale', 'SALE', ?, ?)",
+                    vendorId, storeId, line.productId(), line.batchId(), line.quantity(), saleId.toString(), userId);
+        }
+        jdbcTemplate.update("UPDATE sales SET status = 'VOIDED' WHERE id = ?", saleId);
+        return jdbcTemplate.query("SELECT id, receipt_number, subtotal, discount_amount, vat_amount, total_amount, p.payment_method, p.amount_tendered, p.change_amount FROM sales s JOIN payments p ON p.sale_id = s.id WHERE s.id = ?",
+                (rs, rowNum) -> new SaleView(rs.getLong("id"), rs.getString("receipt_number"), rs.getBigDecimal("subtotal"), rs.getBigDecimal("discount_amount"), rs.getBigDecimal("vat_amount"), rs.getBigDecimal("total_amount"), rs.getString("payment_method"), rs.getBigDecimal("amount_tendered"), rs.getBigDecimal("change_amount")), saleId).getFirst();
+    }
+
+    private PreparedLine prepareLine(Long vendorId, Long storeId, SaleLineRequest request, SalePricingSettings settings) {
         ProductPricing product = jdbcTemplate.query("SELECT id, retail_price, bulk_price, bulk_threshold FROM products "
                         + "WHERE id = ? AND vendor_id = ? AND active = TRUE", (rs, rowNum) -> new ProductPricing(rs.getLong("id"),
                         rs.getBigDecimal("retail_price"), rs.getBigDecimal("bulk_price"), rs.getObject("bulk_threshold", Integer.class)),
@@ -112,6 +140,8 @@ public class PosController {
         BigDecimal unitPrice = pricingService.unitPrice(product.retailPrice(), product.bulkPrice(), product.bulkThreshold(), request.quantity());
         List<BatchAllocation> allocations = new ArrayList<>();
         BigDecimal remaining = request.quantity();
+        boolean allAllocatedBatchesNear = true;
+        boolean allocatedBatch = false;
         List<StockBatch> batches = jdbcTemplate.query("SELECT id, quantity_on_hand, expiration_date FROM inventory_batches "
                         + "WHERE vendor_id = ? AND store_id = ? AND product_id = ? AND quantity_on_hand > 0 "
                         + "AND (expiration_date IS NULL OR expiration_date >= CURRENT_DATE) "
@@ -121,20 +151,26 @@ public class PosController {
             if (remaining.signum() == 0) break;
             BigDecimal amount = remaining.min(batch.quantityOnHand());
             allocations.add(new BatchAllocation(batch.id(), amount));
+            allocatedBatch = true;
+            if (batch.expirationDate() == null
+                    || ChronoUnit.DAYS.between(LocalDate.now(), batch.expirationDate()) > settings.nearExpirationDays()) {
+                allAllocatedBatchesNear = false;
+            }
             remaining = remaining.subtract(amount);
         }
         if (remaining.signum() > 0) throw new ResponseStatusException(HttpStatus.CONFLICT, "Insufficient non-expired stock for product " + request.productId());
-        return new PreparedLine(product.id(), unitPrice, request.quantity().multiply(unitPrice).setScale(2, RoundingMode.HALF_UP), allocations);
+        BigDecimal baseSubtotal = request.quantity().multiply(unitPrice).setScale(2, RoundingMode.HALF_UP);
+        if (allocatedBatch && allAllocatedBatchesNear && settings.nearExpirationDiscountPercent().signum() > 0) {
+            unitPrice = unitPrice.subtract(pricingService.percentageDiscount(unitPrice, settings.nearExpirationDiscountPercent()))
+                    .setScale(2, RoundingMode.HALF_UP);
+        }
+        return new PreparedLine(product.id(), unitPrice, request.quantity().multiply(unitPrice).setScale(2, RoundingMode.HALF_UP), baseSubtotal, allocations);
     }
 
     private void requirePosAccess(Long vendorId, Long storeId, Authentication authentication) {
         Integer belongs = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM stores WHERE id = ? AND vendor_id = ?", Integer.class, storeId, vendorId);
         if (belongs == null || belongs == 0) throw notFound("Store not found");
-        boolean allowed = authentication.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN"))
-                || tenantAccessService.hasVendorRole(authentication, vendorId, "VENDOR_ADMIN")
-                || tenantAccessService.hasStoreRole(authentication, storeId, "CASHIER")
-                || tenantAccessService.hasStoreRole(authentication, storeId, "STAFF");
-        if (!allowed) throw new AccessDeniedException("POS access is required for this store");
+        permissionAccessService.require(authentication, vendorId, storeId, "POS_USE");
     }
 
     private Long userId(Authentication authentication) {
@@ -142,18 +178,22 @@ public class PosController {
     }
 
     private BigDecimal money(BigDecimal value) { return (value == null ? BigDecimal.ZERO : value).setScale(2, RoundingMode.HALF_UP); }
-    private TaxSettings taxSettings(Long vendorId) {
-        return jdbcTemplate.query("SELECT vat_registered, vat_rate FROM business_settings WHERE vendor_id = ?",
-                (rs, rowNum) -> new TaxSettings(rs.getBoolean("vat_registered"), rs.getBigDecimal("vat_rate")), vendorId)
-                .stream().findFirst().orElse(new TaxSettings(false, BigDecimal.ZERO));
+    private SalePricingSettings salePricingSettings(Long vendorId) {
+        return jdbcTemplate.query("SELECT vat_registered, vat_rate, near_expiration_days, near_expiration_discount_percent FROM business_settings WHERE vendor_id = ?",
+                (rs, rowNum) -> new SalePricingSettings(rs.getBoolean("vat_registered"), rs.getBigDecimal("vat_rate"),
+                        rs.getInt("near_expiration_days"), rs.getBigDecimal("near_expiration_discount_percent")), vendorId)
+                .stream().findFirst().orElse(new SalePricingSettings(false, BigDecimal.ZERO, 30, BigDecimal.ZERO));
     }
     private ResponseStatusException notFound(String message) { return new ResponseStatusException(HttpStatus.NOT_FOUND, message); }
 
     private record ProductPricing(Long id, BigDecimal retailPrice, BigDecimal bulkPrice, Integer bulkThreshold) { }
     private record StockBatch(Long id, BigDecimal quantityOnHand, LocalDate expirationDate) { }
     private record BatchAllocation(Long batchId, BigDecimal quantity) { }
-    private record PreparedLine(Long productId, BigDecimal unitPrice, BigDecimal subtotal, List<BatchAllocation> allocations) { }
-    private record TaxSettings(boolean vatRegistered, BigDecimal vatRate) { }
+    private record PreparedLine(Long productId, BigDecimal unitPrice, BigDecimal subtotal, BigDecimal baseSubtotal,
+                                List<BatchAllocation> allocations) { }
+    private record SalePricingSettings(boolean vatRegistered, BigDecimal vatRate, int nearExpirationDays,
+                                       BigDecimal nearExpirationDiscountPercent) { }
+    private record SoldLine(Long productId, Long batchId, BigDecimal quantity) { }
 
     public record SaleView(Long id, String receiptNumber, BigDecimal subtotal, BigDecimal discountAmount,
                            BigDecimal vatAmount, BigDecimal totalAmount, String paymentMethod,

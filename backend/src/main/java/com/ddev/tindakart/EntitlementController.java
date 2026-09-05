@@ -29,10 +29,10 @@ public class EntitlementController {
         }
         Map<String, Boolean> features = new LinkedHashMap<>();
         jdbcTemplate.query("SELECT pf.feature_key, pf.enabled FROM vendor_subscriptions vs JOIN package_features pf ON pf.package_id = vs.package_id WHERE vs.vendor_id = ? AND vs.status IN ('TRIAL', 'ACTIVE')",
-                rs -> features.put(rs.getString("feature_key"), rs.getBoolean("enabled")), vendorId);
+                (org.springframework.jdbc.core.RowCallbackHandler) rs -> features.put(rs.getString("feature_key"), rs.getBoolean("enabled")), vendorId);
         Map<String, Integer> limits = new LinkedHashMap<>();
         jdbcTemplate.query("SELECT pl.limit_key, pl.limit_value FROM vendor_subscriptions vs JOIN package_limits pl ON pl.package_id = vs.package_id WHERE vs.vendor_id = ? AND vs.status IN ('TRIAL', 'ACTIVE')",
-                rs -> limits.put(rs.getString("limit_key"), rs.getInt("limit_value")), vendorId);
+                (org.springframework.jdbc.core.RowCallbackHandler) rs -> limits.put(rs.getString("limit_key"), rs.getInt("limit_value")), vendorId);
         return new Entitlements(features, limits);
     }
 

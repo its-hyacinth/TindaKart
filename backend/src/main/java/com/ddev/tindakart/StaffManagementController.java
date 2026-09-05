@@ -32,13 +32,16 @@ public class StaffManagementController {
     private final TenantAccessService tenantAccessService;
     private final PasswordEncoder passwordEncoder;
     private final PackageAccessService packageAccessService;
+    private final AuditService auditService;
 
     public StaffManagementController(JdbcTemplate jdbcTemplate, TenantAccessService tenantAccessService,
-                                     PasswordEncoder passwordEncoder, PackageAccessService packageAccessService) {
+                                     PasswordEncoder passwordEncoder, PackageAccessService packageAccessService,
+                                     AuditService auditService) {
         this.jdbcTemplate = jdbcTemplate;
         this.tenantAccessService = tenantAccessService;
         this.passwordEncoder = passwordEncoder;
         this.packageAccessService = packageAccessService;
+        this.auditService = auditService;
     }
 
     @GetMapping
@@ -84,6 +87,7 @@ public class StaffManagementController {
         } else {
             assignStores(userId, vendorId, request.storeIds(), request.role());
         }
+        auditService.record(authentication.getName(), "STAFF_CREATED", "USER", userId.toString(), request.role());
         return ResponseEntity.status(HttpStatus.CREATED).body(findStaff(vendorId, userId));
     }
 
@@ -99,6 +103,7 @@ public class StaffManagementController {
         requireStaffBelongsToVendor(vendorId, userId);
         jdbcTemplate.update("UPDATE users SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 "ACTIVE".equals(request.status()), userId);
+        auditService.record(authentication.getName(), "STAFF_STATUS_CHANGED", "USER", userId.toString(), request.status());
         return findStaff(vendorId, userId);
     }
 
@@ -126,6 +131,7 @@ public class StaffManagementController {
                     + "SELECT ?, id, ? FROM stores WHERE vendor_id = ? AND id = ANY (?::bigint[]) "
                     + "ON CONFLICT DO NOTHING", userId, roleId, vendorId, request.storeIds().toArray(Long[]::new));
         }
+        auditService.record(authentication.getName(), "STAFF_STORES_ASSIGNED", "USER", userId.toString(), request.storeIds().toString());
         return findStaff(vendorId, userId);
     }
 

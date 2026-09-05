@@ -58,6 +58,12 @@ public class TenantAccessService {
         return count != null && count > 0;
     }
 
+    public boolean storeBelongsToVendor(Long vendorId, Long storeId) {
+        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM stores WHERE id = ? AND vendor_id = ?",
+                Integer.class, storeId, vendorId);
+        return count != null && count > 0;
+    }
+
     public boolean hasStoreRole(Authentication authentication, Long storeId, String roleName) {
         if (hasRole(authentication, "ROLE_SUPER_ADMIN")) return true;
         Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM store_user_roles sur "

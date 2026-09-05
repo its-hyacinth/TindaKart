@@ -23,5 +23,13 @@ public class PricingService {
         return money(money(taxableAmount).multiply(vatRate).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP));
     }
 
+    public BigDecimal percentageDiscount(BigDecimal amount, BigDecimal discountPercent) {
+        BigDecimal percent = money(discountPercent);
+        if (percent.signum() < 0 || percent.compareTo(new BigDecimal("100.00")) > 0) {
+            throw new IllegalArgumentException("Discount percentage must be between 0 and 100");
+        }
+        return money(money(amount).multiply(percent).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP));
+    }
+
     public BigDecimal money(BigDecimal value) { return (value == null ? BigDecimal.ZERO : value).setScale(2, RoundingMode.HALF_UP); }
 }

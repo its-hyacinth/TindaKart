@@ -15,7 +15,7 @@ Module 0 adds the new architecture beside the existing Swing desktop app.
 From the repository root:
 
 ```powershell
-$env:GRADLE_USER_HOME = "$PWD\.gradle-user-home"
+$env:GRADLE_USER_HOME = "$PWD\.gradle-home"
 .\gradlew.bat :backend:bootRun
 ```
 
@@ -40,7 +40,7 @@ The PWA runs at `http://localhost:5173` and proxies `/api` requests to the backe
 
 ## Migrations
 
-Flyway runs automatically when the backend starts. The current local database has migrations V1 through V11 applied. Versioned migrations are forward-only; do not add `DROP TABLE` statements to reset a client database.
+Flyway runs automatically when the backend starts. The current local database has migrations V1 through V17 applied. Versioned migrations are forward-only; do not add `DROP TABLE` statements to reset a client database.
 
 Implemented API foundations include:
 
@@ -60,6 +60,8 @@ The current PWA includes responsive operations tabs for POS, Catalog, Inventory,
 
 The current root `.env` is intentionally local and ignored by Git. Do not commit it. Use `.env.example` as the template for another machine.
 
+The local database is currently migrated through V17. Migrations are forward-only; do not add destructive reset statements to a client database.
+
 ## Module 1: first owner account
 
 Add these two values to the root `.env` before the first backend startup:
@@ -70,3 +72,5 @@ INITIAL_ADMIN_PASSWORD=choose-a-strong-local-password
 ```
 
 When the `users` table is empty, the backend creates this account with the `SUPER_ADMIN` role. It does not overwrite existing users on later starts. Change or remove these values after the first account is created.
+
+See [HANDOVER_GUIDE.md](HANDOVER_GUIDE.md) for operator setup, role responsibilities, backup/recovery, troubleshooting, and deployment prerequisites.

@@ -26,3 +26,6 @@ frontend/dist/
 # Local environment secrets
 .env
 
+# Local database backups may contain client data and must never be committed
+backups/
+

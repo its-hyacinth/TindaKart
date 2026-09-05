@@ -21,6 +21,7 @@ dependencies {
     runtimeOnly("org.postgresql:postgresql")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.security:spring-security-test")
     testRuntimeOnly("com.h2database:h2")
 }
 
@@ -32,6 +33,19 @@ java {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+}
+
+tasks.test {
+    useJUnitPlatform { excludeTags("integration") }
+}
+
+val integrationTest by tasks.registering(Test::class) {
+    description = "Runs database-backed integration tests against the configured PostgreSQL database."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform { includeTags("integration") }
+    shouldRunAfter(tasks.test)
 }
 
 tasks.withType<JavaCompile>().configureEach {

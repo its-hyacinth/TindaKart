@@ -34,10 +34,11 @@ public class SettingsController {
     @GetMapping
     public BusinessSettings get(@PathVariable Long vendorId, Authentication authentication) {
         requireAccess(vendorId, authentication, false);
-        return jdbcTemplate.query("SELECT business_name, business_address, tin, vat_registered, vat_rate, near_expiration_days, receipt_footer FROM business_settings WHERE vendor_id = ?",
+        return jdbcTemplate.query("SELECT business_name, business_address, tin, vat_registered, vat_rate, near_expiration_days, near_expiration_discount_percent, receipt_footer FROM business_settings WHERE vendor_id = ?",
                 (rs, rowNum) -> new BusinessSettings(rs.getString("business_name"), rs.getString("business_address"), rs.getString("tin"),
-                        rs.getBoolean("vat_registered"), rs.getBigDecimal("vat_rate"), rs.getInt("near_expiration_days"), rs.getString("receipt_footer")), vendorId)
-                .stream().findFirst().orElse(new BusinessSettings(null, null, null, false, BigDecimal.ZERO, 30, null));
+                        rs.getBoolean("vat_registered"), rs.getBigDecimal("vat_rate"), rs.getInt("near_expiration_days"),
+                        rs.getBigDecimal("near_expiration_discount_percent"), rs.getString("receipt_footer")), vendorId)
+                .stream().findFirst().orElse(new BusinessSettings(null, null, null, false, BigDecimal.ZERO, 30, BigDecimal.ZERO, null));
     }
 
     @PutMapping
@@ -48,10 +49,11 @@ public class SettingsController {
         if (request.vatRegistered() && request.vatRate().signum() == 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "VAT rate is required when VAT is enabled");
         }
-        jdbcTemplate.update("INSERT INTO business_settings (vendor_id, business_name, business_address, tin, vat_registered, vat_rate, near_expiration_days, receipt_footer) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (vendor_id) DO UPDATE SET business_name = EXCLUDED.business_name, business_address = EXCLUDED.business_address, "
-                + "tin = EXCLUDED.tin, vat_registered = EXCLUDED.vat_registered, vat_rate = EXCLUDED.vat_rate, near_expiration_days = EXCLUDED.near_expiration_days, receipt_footer = EXCLUDED.receipt_footer, updated_at = CURRENT_TIMESTAMP",
-                vendorId, request.businessName(), request.businessAddress(), request.tin(), request.vatRegistered(), request.vatRate(), request.nearExpirationDays(), request.receiptFooter());
+        jdbcTemplate.update("INSERT INTO business_settings (vendor_id, business_name, business_address, tin, vat_registered, vat_rate, near_expiration_days, near_expiration_discount_percent, receipt_footer) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (vendor_id) DO UPDATE SET business_name = EXCLUDED.business_name, business_address = EXCLUDED.business_address, "
+                + "tin = EXCLUDED.tin, vat_registered = EXCLUDED.vat_registered, vat_rate = EXCLUDED.vat_rate, near_expiration_days = EXCLUDED.near_expiration_days, "
+                + "near_expiration_discount_percent = EXCLUDED.near_expiration_discount_percent, receipt_footer = EXCLUDED.receipt_footer, updated_at = CURRENT_TIMESTAMP",
+                vendorId, request.businessName(), request.businessAddress(), request.tin(), request.vatRegistered(), request.vatRate(), request.nearExpirationDays(), request.nearExpirationDiscountPercent(), request.receiptFooter());
         return get(vendorId, authentication);
     }
 
@@ -64,5 +66,7 @@ public class SettingsController {
 
     public record BusinessSettings(@Size(max = 255) String businessName, @Size(max = 500) String businessAddress,
                                     @Size(max = 80) String tin, boolean vatRegistered, @NotNull @DecimalMin("0.00") @DecimalMax("100.00") BigDecimal vatRate,
-                                    @NotNull @PositiveOrZero Integer nearExpirationDays, @Size(max = 500) String receiptFooter) { }
+                                    @NotNull @PositiveOrZero Integer nearExpirationDays,
+                                    @NotNull @DecimalMin("0.00") @DecimalMax("100.00") BigDecimal nearExpirationDiscountPercent,
+                                    @Size(max = 500) String receiptFooter) { }
 }

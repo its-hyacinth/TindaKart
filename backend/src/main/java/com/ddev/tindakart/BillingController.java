@@ -7,7 +7,6 @@ import jakarta.validation.constraints.NotBlank;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
 import javax.crypto.Mac;
@@ -26,7 +25,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestController
@@ -34,21 +32,18 @@ import org.springframework.web.server.ResponseStatusException;
 public class BillingController {
     private final JdbcTemplate jdbcTemplate;
     private final TenantAccessService tenantAccessService;
-    private final RestClient restClient;
+    private final SubscriptionPaymentProvider paymentProvider;
     private final ObjectMapper objectMapper;
-    private final String secretKey;
     private final String webhookSecret;
 
     public BillingController(JdbcTemplate jdbcTemplate, TenantAccessService tenantAccessService, ObjectMapper objectMapper,
-                             @Value("${tindakart.billing.paymongo-secret-key:}") String secretKey,
-                             @Value("${tindakart.billing.paymongo-webhook-secret:}") String webhookSecret,
-                             @Value("${tindakart.billing.paymongo-base-url:https://api.paymongo.com}") String baseUrl) {
+                             SubscriptionPaymentProvider paymentProvider,
+                             @Value("${tindakart.billing.paymongo-webhook-secret:}") String webhookSecret) {
         this.jdbcTemplate = jdbcTemplate;
         this.tenantAccessService = tenantAccessService;
         this.objectMapper = objectMapper;
-        this.secretKey = secretKey;
+        this.paymentProvider = paymentProvider;
         this.webhookSecret = webhookSecret;
-        this.restClient = RestClient.builder().baseUrl(baseUrl).build();
     }
 
     @GetMapping("/vendors/{vendorId}/billing/checkout")
@@ -65,31 +60,17 @@ public class BillingController {
     public CheckoutView createCheckout(@PathVariable Long vendorId, @Valid @RequestBody CheckoutRequest request,
                                         Authentication authentication) {
         requireVendorAdmin(vendorId, authentication);
-        if (secretKey.isBlank()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "PayMongo sandbox key is not configured");
+        if (!paymentProvider.configured()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Payment provider is not configured");
         Subscription subscription = jdbcTemplate.query("SELECT vs.id, p.name, p.monthly_price, p.annual_price FROM vendor_subscriptions vs JOIN packages p ON p.id = vs.package_id "
                         + "WHERE vs.vendor_id = ? AND vs.status IN ('TRIAL', 'PAST_DUE') ORDER BY vs.created_at DESC LIMIT 1",
                 (rs, rowNum) -> new Subscription(rs.getLong("id"), rs.getString("name"), rs.getBigDecimal("monthly_price"), rs.getBigDecimal("annual_price")), vendorId)
                 .stream().findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Select a package before checkout"));
         BigDecimal amount = "ANNUAL".equals(request.billingCycle()) ? subscription.annualPrice() : subscription.monthlyPrice();
         if (amount.signum() <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Selected package has no billable price");
-        String payload = "{\"data\":{\"attributes\":{"
-                + "\"line_items\":[{\"currency\":\"PHP\",\"amount\":" + amount.movePointRight(2).intValueExact()
-                + ",\"description\":\"TindaKart " + escape(subscription.packageName()) + " subscription\",\"name\":\"TindaKart subscription\",\"quantity\":1}],"
-                + "\"payment_method_types\":[\"card\",\"gcash\",\"paymaya\"],\"description\":\"TindaKart subscription\","
-                + "\"send_email_receipt\":false,\"show_line_items\":true}}}";
-        String response;
+        SubscriptionPaymentProvider.Checkout checkout = paymentProvider.createCheckout(subscription.packageName(), amount);
         try {
-            response = restClient.post().uri("/v1/checkout_sessions").contentType(MediaType.APPLICATION_JSON)
-                    .header("Authorization", "Basic " + Base64.getEncoder().encodeToString((secretKey + ":").getBytes(StandardCharsets.UTF_8)))
-                    .body(payload).retrieve().body(String.class);
-        } catch (Exception ex) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "PayMongo checkout could not be created");
-        }
-        try {
-            JsonNode data = objectMapper.readTree(response).path("data");
-            String checkoutId = data.path("id").asText();
-            String checkoutUrl = data.path("attributes").path("checkout_url").asText();
-            if (checkoutId.isBlank() || checkoutUrl.isBlank()) throw new IllegalStateException();
+            String checkoutId = checkout.providerCheckoutId();
+            String checkoutUrl = checkout.checkoutUrl();
             jdbcTemplate.update("INSERT INTO subscription_checkout_sessions (vendor_subscription_id, provider, provider_checkout_id, checkout_url, amount) VALUES (?, 'PAYMONGO', ?, ?, ?)",
                     subscription.id(), checkoutId, checkoutUrl, amount);
             return jdbcTemplate.query("SELECT id, provider_checkout_id, checkout_url, amount, currency, status, created_at FROM subscription_checkout_sessions WHERE provider_checkout_id = ?",
@@ -159,7 +140,6 @@ public class BillingController {
                 && !tenantAccessService.hasVendorRole(authentication, vendorId, "VENDOR_ADMIN")) throw new AccessDeniedException("Vendor Admin permission is required");
     }
 
-    private String escape(String value) { return value.replace("\\", "\\\\").replace("\"", "\\\""); }
     private record Subscription(Long id, String packageName, BigDecimal monthlyPrice, BigDecimal annualPrice) { }
     public record CheckoutRequest(@NotBlank String billingCycle) { }
     public record CheckoutView(Long id, String providerCheckoutId, String checkoutUrl, BigDecimal amount, String currency, String status, java.time.Instant createdAt) { }

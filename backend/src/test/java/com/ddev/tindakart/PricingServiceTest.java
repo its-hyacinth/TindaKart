@@ -29,4 +29,14 @@ class PricingServiceTest {
         assertEquals(new BigDecimal("12.00"), pricing.vat(new BigDecimal("100"), true, new BigDecimal("12")));
         assertEquals(new BigDecimal("0.00"), pricing.vat(new BigDecimal("100"), false, new BigDecimal("12")));
     }
+
+    @Test
+    void calculatesPercentageDiscount() {
+        assertEquals(new BigDecimal("12.50"), pricing.percentageDiscount(new BigDecimal("100"), new BigDecimal("12.5")));
+    }
+
+    @Test
+    void rejectsInvalidPercentageDiscount() {
+        assertThrows(IllegalArgumentException.class, () -> pricing.percentageDiscount(new BigDecimal("100"), new BigDecimal("100.01")));
+    }
 }

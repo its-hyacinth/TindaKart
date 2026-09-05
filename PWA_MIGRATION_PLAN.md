@@ -10,14 +10,32 @@ Checked items below mean the capability exists in the repository and has been ve
 - [x] Vendor/store API foundation created.
 - [x] Backend Java compilation verified successfully.
 - [ ] End-to-end migration and authentication integration tests.
-- [ ] Complete scoped-role and package-feature authorization.
+- [x] Complete scoped-role and package-feature authorization; end-to-end denial tests remain in Phase 13.
 - [x] Frontend operations screen foundations for POS, Inventory, Catalog, Debt, Deliveries, and Reports.
-- [ ] POS, inventory, debt, delivery, receipts, billing, and reporting workflows.
+- [x] POS, inventory, debt, delivery, receipts, billing, and reporting workflows implemented; end-to-end verification remains in Phase 13.
 - [x] Centralized API error response and server logging foundation added.
 - [x] Desktop sidebar and mobile compact navigation added to the operations shell.
 - [x] Vendor Admin staff controls and business receipt/tax settings UI added.
 - [x] Catalog category and product creation UI added.
 - [x] Subscription package creation, selection, checkout, and billing-history UI foundation added.
+- [x] Vendor entitlement API and package-based operations navigation added.
+- [x] Backend entitlement endpoint compilation and full test suite verified.
+- [x] PostgreSQL-backed runtime smoke verified: Flyway validated all 17 migrations and health/database endpoints returned UP.
+- [x] Authenticated shell shows connectivity status; offline transaction support remains intentionally pending.
+- [x] Inventory batches and movement history show explicit loading states.
+- [x] Sales, stock, expiration, and advanced report views show explicit loading states.
+- [x] Catalog, debt, and delivery tables show explicit loading states.
+- [x] API client requests fail with a bounded timeout and actionable connectivity message.
+- [x] POS browser printing records the receipt printed event before opening print preview.
+- [x] Receipt preview includes configured business identity, TIN, VAT context, payment/change, and footer fields.
+- [x] Protected frontend mutations obtain and send the backend CSRF token automatically.
+- [x] POS completed-sale void control restores stock batches and records reversal movements.
+- [x] Delivery receiving variance UI and debt-aging UI wired into Operations.
+- [x] Expiration classification extracted into a backend policy with boundary unit tests.
+- [x] Server-validated vendor/store context persists in the authenticated session and restores on PWA reload.
+- [x] Local PostgreSQL backup was restored into an isolated temporary database and validated before cleanup.
+- [x] Authenticated runtime smoke verified PostgreSQL health, Super Admin login, and initial session context.
+- [x] Vendor-configured near-expiration discount percentage is validated server-side and applied only to qualifying non-expired stock.
 
 ## Purpose
 
@@ -168,16 +186,16 @@ Delivery management, SMS reminders, advanced analytics, and native mobile packag
 
 ## Phase 1: Protect and Document Existing Data
 
-- [ ] Back up the existing PostgreSQL database.
-- [ ] Create a restore procedure and test it.
-- [ ] Export the current table definitions.
-- [ ] Document existing columns, constraints, indexes, and relationships.
+- [x] Back up the existing PostgreSQL database; a local custom-format archive was created and verified.
+- [x] Create a restore procedure and test it against an isolated temporary database; the active database was not modified.
+- [x] Export the current table definitions.
+- [x] Document existing columns, constraints, indexes, and relationships.
 - [ ] Identify duplicate or incomplete products.
 - [ ] Identify debt records without matching customer profiles.
 - [ ] Identify products that have sales history.
 - [ ] Record the existing sample/demo data separately from real client data.
 - [ ] Decide whether current IDs must be preserved during migration.
-- [ ] Record the current PostgreSQL version and connection settings.
+- [x] Record the current PostgreSQL version and connection settings without exposing credentials.
 
 No migration should run against the client database without a verified backup and rollback plan.
 
@@ -192,13 +210,13 @@ No migration should run against the client database without a verified backup an
 - [x] Add request validation.
 - [x] Add consistent API error response format.
 - [x] Add health-check endpoint.
-- [ ] Add database transaction boundaries in the backend.
-- [ ] Add API documentation.
-- [ ] Add development, test, and production configuration profiles.
+- [x] Add database transaction boundaries in the backend.
+- [x] Add API documentation for the implemented PWA/backend contracts.
+- [x] Add development, test, and production configuration profiles.
 - [ ] Add tenant context resolution from the authenticated user.
-- [ ] Enforce vendor/store scope in backend queries and service methods.
-- [ ] Prevent clients from selecting arbitrary vendor or store IDs.
-- [ ] Add platform, vendor, and store-level authorization checks.
+- [x] Enforce vendor/store scope in backend queries and service methods.
+- [x] Prevent clients from selecting arbitrary vendor or store IDs.
+- [x] Add platform, vendor, and store-level authorization checks.
 
 ### Backend rules
 
@@ -219,15 +237,15 @@ The backend must own these rules:
 - [x] Hash passwords securely.
 - [x] Implement login sessions or secure token authentication.
 - [x] Implement logout and session expiry.
-- [ ] Add account activation/deactivation.
-- [ ] Add password change/reset flow.
+- [x] Add staff account activation/deactivation controls with backend enforcement.
+- [x] Add authenticated password-change flow; password-reset-by-email remains pending.
 - [x] Add role-based permissions foundation.
 - [x] Protect implemented admin-only API routes on the backend.
-- [ ] Add login attempt protection.
-- [ ] Add audit logging for login and sensitive actions.
+- [x] Add login attempt protection (five failures within a 15-minute window locks the username temporarily).
+- [x] Add login success/failure audit logging foundation.
 - [x] Add platform-level, vendor-level, and store-level scope schema.
 - [x] Add package feature and limit schema.
-- [ ] Add a current vendor/store context to authenticated sessions.
+- [x] Add a current vendor/store context to authenticated sessions.
 
 ### Role hierarchy and scopes
 
@@ -428,19 +446,21 @@ The backend must validate the authenticated user's vendor/store scope for every 
 ## Phase 5A: Vendor, Store, Package, and Subscription Management
 
 - [x] Build Super Admin vendor management API foundation.
-- [ ] Build vendor onboarding and activation flow.
-- [ ] Build vendor suspension/reactivation flow.
+- [x] Build vendor onboarding and activation flow.
+- [x] Build vendor suspension/reactivation flow.
 - [x] Build vendor store/branch management API foundation.
 - [x] Build Vendor Admin staff management API foundation.
 - [x] Build store assignment for staff API foundation.
+- [x] Add multi-store staff creation and reassignment controls in the PWA; final staff assignment policy remains owner-confirmed.
 - [x] Build package management API foundation for Super Admin.
 - [x] Add package prices, features, and limits API support.
 - [x] Build vendor package selection API foundation.
 - [x] Add subscription status: trial, active, past due, suspended, cancelled.
 - [x] Enforce package feature gates and initial numeric limits in the backend (stores, staff, and products).
-- [ ] Hide or disable unavailable PWA modules based on package features.
+- [x] Hide unavailable PWA modules based on package features (backend enforcement remains authoritative).
 - [x] Add initial Vendor Admin staff and business-settings management UI.
-- [ ] Add vendor-level and store-level audit events.
+- [x] Add vendor-level, store-level, and staff-management audit events.
+- [x] Add Super Admin audit-log review API and PWA view.
 
 ## Phase 5B: PayMongo Subscription Billing
 
@@ -462,7 +482,7 @@ Vendor subscription becomes active
 Package features and limits are enforced
 ```
 
-- [ ] Create a payment-provider abstraction so PayMongo can be replaced later.
+- [x] Create a payment-provider abstraction so PayMongo can be replaced later.
 - [x] Store PayMongo secret keys only in backend environment configuration.
 - [x] Never expose secret keys to the PWA.
 - [x] Create subscription checkout sessions from the backend.
@@ -471,7 +491,7 @@ Package features and limits are enforced
 - [x] Make webhook processing idempotent.
 - [x] Handle successful, failed, cancelled, and expired payments in the webhook foundation.
 - [x] Update subscription status from verified provider events in the webhook foundation.
-- [ ] Add refund/cancellation handling.
+- [x] Add authorized POS cancellation/void handling with stock restoration; external payment refunds remain pending.
 - [x] Add billing history for Vendor Admin; Super Admin package controls are available.
 - [x] Configure PayMongo sandbox/test transactions for development.
 - [ ] Confirm PayMongo account activation and supported payment methods before production.
@@ -527,15 +547,15 @@ Create inventory movement
 - [x] Add desktop sidebar navigation.
 - [x] Add mobile compact menu navigation.
 - [x] Add responsive breakpoints.
-- [ ] Add loading states.
-- [ ] Add error states.
-- [ ] Add empty states.
+- [x] Add loading states across authenticated shell, administration, operations, reports, and inventory views.
+- [x] Add error states to the implemented PWA workflows.
+- [x] Add empty states to tables and alert panels.
 - [x] Add reusable buttons, inputs, tables, badges, and cards foundation.
 - [x] Add authentication state handling.
 - [x] Add protected application view/authentication gate.
 - [x] Add installable PWA manifest.
 - [x] Add service worker.
-- [ ] Add app icons and splash assets.
+- [x] Add app icons; splash assets remain platform/browser dependent.
 - [ ] Configure HTTPS for deployed environments.
 - [ ] Add responsive testing for laptop, tablet, Android, and iOS browser sizes.
 
@@ -552,7 +572,7 @@ Create inventory movement
 
 - [x] Add product search.
 - [x] Add category filter.
-- [ ] Add A–Z sorting.
+- [x] Add A–Z sorting to the POS product display.
 - [x] Add product cards or organized product list.
 - [x] Add product creation form with piece/bulk and expiration fields.
 - [x] Add barcode input for USB/Bluetooth keyboard-style scanners.
@@ -567,26 +587,27 @@ Create inventory movement
 - [x] Display total clearly.
 - [x] Add payment method.
 - [x] Add amount tendered and change.
-- [ ] Add remove item and void transaction controls.
-- [ ] Add insufficient-stock validation.
+- [x] Add remove item and void transaction controls (including authorized backend void with stock restoration).
+- [x] Add insufficient-stock validation (backend rejects insufficient stock atomically; frontend surfaces the API error).
 - [x] Add expired-product blocking.
 - [x] Add successful sale confirmation.
-- [ ] Add receipt preview and printing.
+- [x] Add receipt preview and browser printing; thermal layout/printer acceptance remains pending.
 
 ## Phase 8: Inventory and Expiration
 
 - [x] Create a dedicated inventory dashboard foundation.
-- [ ] Show name, barcode, category, unit, quantity, prices, expiration, and status.
+- [x] Show name, barcode, category, unit, quantity, retail/bulk prices, expiration, and status.
 - [x] Add stock receiving.
 - [x] Add stock adjustment with required reason.
-- [ ] Add inventory movement history.
-- [ ] Add low-stock warnings.
-- [ ] Add near-expiration section.
+- [x] Add inventory barcode input/camera scan that identifies an existing product before receiving stock.
+- [x] Add scoped inventory movement history API and PWA view.
+- [x] Add low-stock warnings.
+- [x] Add near-expiration section.
 - [ ] Define near-expiration threshold with the owner.
-- [ ] Allow authorized near-expiration discounts.
-- [ ] Mark expired stock clearly.
-- [ ] Block expired stock at POS.
-- [ ] Add expired and near-expiration reports.
+- [x] Allow authorized near-expiration discounts through Vendor Admin business settings; owner threshold confirmation remains pending.
+- [x] Mark expired stock clearly.
+- [x] Block expired stock at POS.
+- [x] Add expired and near-expiration reports using the configured vendor threshold.
 
 ## Phase 9: Receipts and Printing
 
@@ -611,9 +632,9 @@ Do not add VAT until the business tax setup is confirmed.
 - [x] Record credit sales from POS.
 - [x] Record full and partial payments API foundation.
 - [x] Show payment history API foundation.
-- [ ] Add payment receipt.
+- [x] Add payment receipt numbering and API metadata; final print layout remains pending owner acceptance.
 - [x] Add customer search.
-- [ ] Add debt aging report.
+- [x] Add debt aging report API and PWA view.
 - [ ] Add SMS/reminder integration only if required.
 
 ## Phase 11: Delivery
@@ -624,7 +645,7 @@ Do not add VAT until the business tax setup is confirmed.
 - [x] Add expected delivery date.
 - [x] Add products and quantities.
 - [x] Add delivery status.
-- [ ] Add received, missing, and damaged quantities.
+- [x] Add received, missing, and damaged quantities with controlled receiving API.
 - [x] Update inventory when delivery is received.
 - [x] Add upcoming deliveries dashboard foundation.
 - [x] Add delivery history API foundation.
@@ -634,16 +655,16 @@ Do not add VAT until the business tax setup is confirmed.
 - [x] Daily sales API foundation.
 - [x] Weekly sales API foundation.
 - [x] Monthly sales API foundation.
-- [ ] Best-selling products.
+- [x] Best-selling products.
 - [x] Low-stock products API foundation.
 - [x] Expired products API foundation.
 - [x] Near-expiration products API foundation.
 - [x] Debt balances API foundation.
-- [ ] Payments collected.
-- [ ] Delivery history.
-- [ ] Profit estimate.
-- [ ] VAT summary when applicable.
-- [ ] CSV/PDF export.
+- [x] Payments collected.
+- [x] Delivery history report API, CSV inclusion, and PWA view.
+- [x] Profit estimate.
+- [x] VAT summary report when applicable; disabled-business state is displayed without adding VAT.
+- [x] Browser print/Save as PDF and CSV export are implemented in the PWA; server-generated PDF remains optional.
 
 ## Phase 13: Testing
 
@@ -653,9 +674,9 @@ Do not add VAT until the business tax setup is confirmed.
 - [x] Piece and bulk pricing.
 - [x] Discounts.
 - [x] VAT calculations.
-- [ ] Debt balances.
-- [ ] Expiration rules.
-- [ ] Role permissions.
+- [x] Debt balances.
+- [x] Expiration rules.
+- [x] Role permissions evaluator and package entitlement rules have unit coverage; end-to-end role isolation remains in integration testing.
 
 ### Integration tests
 
@@ -679,7 +700,7 @@ Do not add VAT until the business tax setup is confirmed.
 - [ ] Camera barcode scanner.
 - [ ] Thermal receipt printer.
 - [ ] Slow network behavior.
-- [ ] Database backup and restore.
+- [x] Database backup and restore tested with a temporary isolated database.
 
 ## Phase 14: Deployment and Handover
 
@@ -688,11 +709,11 @@ Do not add VAT until the business tax setup is confirmed.
 - [ ] Configure HTTPS.
 - [ ] Configure database backups.
 - [ ] Configure monitoring and logs.
-- [ ] Create deployment instructions.
-- [ ] Create user and role setup instructions.
-- [ ] Create cashier training guide.
-- [ ] Create troubleshooting guide.
-- [ ] Create database restore guide.
+- [x] Create local deployment instructions in `HANDOVER_GUIDE.md`; production deployment remains pending.
+- [x] Create user and role setup instructions.
+- [x] Create cashier training guide.
+- [x] Create troubleshooting guide.
+- [x] Create database restore guide in `BACKUP_PROCEDURE.md`.
 - [ ] Perform client acceptance testing.
 - [ ] Run a controlled pilot before full rollout.
 
@@ -726,26 +747,26 @@ The migration is ready for client use when:
 
 Before implementing features, complete these items:
 
-- [ ] Confirm the deployment model: local, LAN, or cloud.
-- [ ] Confirm PWA framework and backend framework.
-- [ ] Back up the current PostgreSQL database.
-- [ ] Document the current schema.
-- [ ] Design the target schema.
-- [ ] Define the Super Admin → Vendor → Store → Staff hierarchy.
-- [ ] Define vendor, store, and user scopes.
-- [ ] Define permissions and package feature rules.
-- [ ] Define packages, pricing, limits, inclusions, and subscription statuses.
-- [ ] Define TindaKart subscription billing versus store POS payments.
+- [x] Confirm the deployment model: local development first; LAN/cloud deployment remains a later decision.
+- [x] Confirm PWA framework and backend framework.
+- [x] Back up the current PostgreSQL database.
+- [x] Document the current schema.
+- [x] Design the target schema through versioned Flyway migrations.
+- [x] Define the Super Admin → Vendor → Store → Staff hierarchy.
+- [x] Define vendor, store, and user scopes.
+- [x] Define permissions and package feature rules.
+- [x] Define packages, pricing, limits, inclusions, and subscription statuses.
+- [x] Define TindaKart subscription billing versus store POS payments.
 - [ ] Confirm PayMongo sandbox/test account requirements.
-- [ ] Define user roles.
-- [ ] Define POS and inventory API contracts.
-- [ ] Create the backend project skeleton.
-- [ ] Create database migration tooling.
-- [ ] Create the PWA project skeleton.
-- [ ] Build a login page and protected application shell.
-- [ ] Build a health-check endpoint and database connection test.
-- [ ] Validate the first API request from the PWA to the backend.
+- [x] Define user roles.
+- [x] Define POS and inventory API contracts.
+- [x] Create the backend project skeleton.
+- [x] Create database migration tooling.
+- [x] Create the PWA project skeleton.
+- [x] Build a login page and protected application shell.
+- [x] Build a health-check endpoint and database connection test.
+- [x] Validate the first API request from the PWA to the backend.
 - [ ] Validate vendor/store isolation with an authorization test.
-- [ ] Validate the initial Super Admin bootstrap flow.
+- [x] Validate the initial Super Admin bootstrap flow.
 
 Only after this sprint should feature migration begin.

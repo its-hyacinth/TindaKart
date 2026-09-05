@@ -31,13 +31,14 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/vendors/{vendorId}/stores/{storeId}/deliveries")
 public class DeliveryController {
     private final JdbcTemplate jdbcTemplate;
-    private final TenantAccessService tenantAccessService;
     private final PackageAccessService packageAccessService;
+    private final PermissionAccessService permissionAccessService;
 
-    public DeliveryController(JdbcTemplate jdbcTemplate, TenantAccessService tenantAccessService, PackageAccessService packageAccessService) {
+    public DeliveryController(JdbcTemplate jdbcTemplate, PackageAccessService packageAccessService,
+                              PermissionAccessService permissionAccessService) {
         this.jdbcTemplate = jdbcTemplate;
-        this.tenantAccessService = tenantAccessService;
         this.packageAccessService = packageAccessService;
+        this.permissionAccessService = permissionAccessService;
     }
 
 
@@ -90,6 +91,33 @@ public class DeliveryController {
         return find(vendorId, storeId, deliveryId);
     }
 
+    @PutMapping("/{deliveryId}/receive-details")
+    @Transactional
+    public DeliveryView receiveDetails(@PathVariable Long vendorId, @PathVariable Long storeId, @PathVariable Long deliveryId,
+                                       @Valid @RequestBody ReceiveDetailsRequest request, Authentication authentication) {
+        requireStoreAccess(vendorId, storeId, authentication, true);
+        packageAccessService.requireFeature(authentication, vendorId, "DELIVERY");
+        String current = jdbcTemplate.query("SELECT status FROM deliveries WHERE id = ? AND vendor_id = ? AND store_id = ? FOR UPDATE",
+                (rs, rowNum) -> rs.getString("status"), deliveryId, vendorId, storeId).stream().findFirst().orElseThrow(() -> notFound("Delivery not found"));
+        if ("RECEIVED".equals(current) || "COMPLETED".equals(current)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Delivery was already received");
+        List<DeliveryItem> items = jdbcTemplate.query("SELECT id, product_id, quantity_ordered, cost_price, retail_price, bulk_price, expiration_date, batch_reference FROM delivery_items WHERE delivery_id = ? FOR UPDATE",
+                (rs, rowNum) -> new DeliveryItem(rs.getLong("id"), rs.getLong("product_id"), rs.getBigDecimal("quantity_ordered"), rs.getBigDecimal("cost_price"), rs.getBigDecimal("retail_price"), rs.getBigDecimal("bulk_price"), rs.getObject("expiration_date", LocalDate.class), rs.getString("batch_reference")), deliveryId);
+        Long userId = userId(authentication);
+        for (DeliveryItem item : items) {
+            ReceiveDetail detail = request.items().stream().filter(value -> value.deliveryItemId().equals(item.id())).findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Every delivery item must be included"));
+            BigDecimal total = detail.received().add(detail.missing()).add(detail.damaged());
+            if (total.compareTo(item.quantity()) > 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Received, missing, and damaged quantities exceed ordered quantity");
+            if (detail.received().signum() > 0) {
+                Long batchId = jdbcTemplate.queryForObject("INSERT INTO inventory_batches (vendor_id, store_id, product_id, batch_reference, quantity_received, quantity_on_hand, cost_price, retail_price, bulk_price, expiration_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id", Long.class,
+                        vendorId, storeId, item.productId(), item.batchReference(), detail.received(), detail.received(), item.costPrice(), item.retailPrice(), item.bulkPrice(), item.expirationDate());
+                jdbcTemplate.update("INSERT INTO inventory_movements (vendor_id, store_id, product_id, batch_id, movement_type, quantity_delta, reason, reference_type, reference_id, created_by) VALUES (?, ?, ?, ?, 'RECEIVE', ?, 'Delivery received', 'DELIVERY', ?, ?)", vendorId, storeId, item.productId(), batchId, detail.received(), deliveryId.toString(), userId);
+            }
+            jdbcTemplate.update("UPDATE delivery_items SET quantity_received = ?, quantity_missing = ?, quantity_damaged = ? WHERE id = ?", detail.received(), detail.missing(), detail.damaged(), item.id());
+        }
+        jdbcTemplate.update("UPDATE deliveries SET status = 'RECEIVED', updated_at = CURRENT_TIMESTAMP WHERE id = ?", deliveryId);
+        return find(vendorId, storeId, deliveryId);
+    }
+
     @PutMapping("/{deliveryId}/receive")
     @Transactional
     public DeliveryView receive(@PathVariable Long vendorId, @PathVariable Long storeId, @PathVariable Long deliveryId,
@@ -106,7 +134,7 @@ public class DeliveryController {
         for (DeliveryItem item : items) {
             Long batchId = jdbcTemplate.queryForObject("INSERT INTO inventory_batches (vendor_id, store_id, product_id, batch_reference, quantity_received, quantity_on_hand, cost_price, retail_price, bulk_price, expiration_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
                     Long.class, vendorId, storeId, item.productId(), item.batchReference(), item.quantity(), item.quantity(), item.costPrice(), item.retailPrice(), item.bulkPrice(), item.expirationDate());
-            jdbcTemplate.update("UPDATE delivery_items SET quantity_received = quantity_ordered WHERE id = ?", item.id());
+            jdbcTemplate.update("UPDATE delivery_items SET quantity_received = quantity_ordered, quantity_missing = 0, quantity_damaged = 0 WHERE id = ?", item.id());
             jdbcTemplate.update("INSERT INTO inventory_movements (vendor_id, store_id, product_id, batch_id, movement_type, quantity_delta, reason, reference_type, reference_id, created_by) VALUES (?, ?, ?, ?, 'RECEIVE', ?, 'Delivery received', 'DELIVERY', ?, ?)", vendorId, storeId, item.productId(), batchId, item.quantity(), deliveryId.toString(), userId);
         }
         jdbcTemplate.update("UPDATE deliveries SET status = 'RECEIVED', updated_at = CURRENT_TIMESTAMP WHERE id = ?", deliveryId);
@@ -119,8 +147,8 @@ public class DeliveryController {
     }
 
     private List<DeliveryItemView> items(Long deliveryId) {
-        return jdbcTemplate.query("SELECT di.id, di.product_id, p.name AS product_name, di.quantity_ordered, di.quantity_received, di.cost_price, di.expiration_date FROM delivery_items di JOIN products p ON p.id = di.product_id WHERE di.delivery_id = ? ORDER BY p.name",
-                (rs, rowNum) -> new DeliveryItemView(rs.getLong("id"), rs.getLong("product_id"), rs.getString("product_name"), rs.getBigDecimal("quantity_ordered"), rs.getBigDecimal("quantity_received"), rs.getBigDecimal("cost_price"), rs.getObject("expiration_date", LocalDate.class)), deliveryId);
+        return jdbcTemplate.query("SELECT di.id, di.product_id, p.name AS product_name, di.quantity_ordered, di.quantity_received, di.quantity_missing, di.quantity_damaged, di.cost_price, di.expiration_date FROM delivery_items di JOIN products p ON p.id = di.product_id WHERE di.delivery_id = ? ORDER BY p.name",
+                (rs, rowNum) -> new DeliveryItemView(rs.getLong("id"), rs.getLong("product_id"), rs.getString("product_name"), rs.getBigDecimal("quantity_ordered"), rs.getBigDecimal("quantity_received"), rs.getBigDecimal("quantity_missing"), rs.getBigDecimal("quantity_damaged"), rs.getBigDecimal("cost_price"), rs.getObject("expiration_date", LocalDate.class)), deliveryId);
     }
 
     private DeliveryView delivery(java.sql.ResultSet rs, List<DeliveryItemView> items) throws java.sql.SQLException {
@@ -130,11 +158,7 @@ public class DeliveryController {
     private void requireStoreAccess(Long vendorId, Long storeId, Authentication authentication, boolean write) {
         Integer belongs = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM stores WHERE id = ? AND vendor_id = ?", Integer.class, storeId, vendorId);
         if (belongs == null || belongs == 0) throw notFound("Store not found");
-        boolean allowed = authentication.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN"))
-                || tenantAccessService.hasVendorRole(authentication, vendorId, "VENDOR_ADMIN")
-                || (!write && tenantAccessService.hasStoreAccess(authentication, storeId))
-                || (write && tenantAccessService.hasStoreRole(authentication, storeId, "DELIVERY_STAFF"));
-        if (!allowed) throw new AccessDeniedException("Delivery access is required for this store");
+        permissionAccessService.require(authentication, vendorId, storeId, "DELIVERY_MANAGE");
     }
 
     private void validateSupplier(Long vendorId, Long supplierId) { if (jdbcTemplate.queryForObject("SELECT COUNT(*) FROM suppliers WHERE id = ? AND vendor_id = ?", Integer.class, supplierId, vendorId) == 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Supplier does not belong to this vendor"); }
@@ -149,8 +173,11 @@ public class DeliveryController {
 
     private record DeliveryItem(Long id, Long productId, BigDecimal quantity, BigDecimal costPrice, BigDecimal retailPrice, BigDecimal bulkPrice, LocalDate expirationDate, String batchReference) { }
     public record DeliveryView(Long id, Long supplierId, String supplierName, LocalDate expectedDate, String status, String notes, List<DeliveryItemView> items) { }
-    public record DeliveryItemView(Long id, Long productId, String productName, BigDecimal quantityOrdered, BigDecimal quantityReceived, BigDecimal costPrice, LocalDate expirationDate) { }
+    public record DeliveryItemView(Long id, Long productId, String productName, BigDecimal quantityOrdered, BigDecimal quantityReceived, BigDecimal quantityMissing, BigDecimal quantityDamaged, BigDecimal costPrice, LocalDate expirationDate) { }
     public record CreateDeliveryRequest(@NotNull Long supplierId, @NotNull @FutureOrPresent LocalDate expectedDate, @Size(max = 500) String notes, @NotEmpty List<@Valid DeliveryItemRequest> items) { }
     public record DeliveryItemRequest(@NotNull Long productId, @NotNull @DecimalMin("0.001") BigDecimal quantity, @NotNull @DecimalMin("0.00") BigDecimal costPrice, @DecimalMin("0.00") BigDecimal retailPrice, @DecimalMin("0.00") BigDecimal bulkPrice, LocalDate expirationDate, @Size(max = 120) String batchReference) { }
     public record StatusRequest(@NotBlank String status) { }
+    public record ReceiveDetailsRequest(@NotEmpty List<@Valid ReceiveDetail> items) { }
+    public record ReceiveDetail(@NotNull Long deliveryItemId, @NotNull @DecimalMin("0.00") BigDecimal received,
+                                @NotNull @DecimalMin("0.00") BigDecimal missing, @NotNull @DecimalMin("0.00") BigDecimal damaged) { }
 }

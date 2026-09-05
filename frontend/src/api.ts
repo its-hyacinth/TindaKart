@@ -5,18 +5,34 @@ export type Category = { id: number; vendorId: number; name: string; active: boo
 export type Product = { id: number; vendorId: number; categoryId?: number; categoryName?: string; name: string; sku: string; unitType: string; retailPrice: number; bulkPrice?: number; bulkThreshold?: number; barcodes: string[] }
 export type InventoryBatch = { id: number; productId: number; productName: string; sku: string; categoryName?: string; unitType: string; barcodes?: string; batchReference?: string; quantityOnHand: number; retailPrice: number; bulkPrice?: number; expirationDate?: string; status: string }
 export type Debt = { id: number; customerId: number; customerName: string; phone?: string; status: string; totalCredit: number; totalPaid: number; balance: number }
-export type Delivery = { id: number; supplierId: number; supplierName: string; expectedDate: string; status: string; notes?: string; items: { id: number; productId: number; productName: string; quantityOrdered: number; quantityReceived: number; costPrice: number; expirationDate?: string }[] }
+export type Delivery = { id: number; supplierId: number; supplierName: string; expectedDate: string; status: string; notes?: string; items: { id: number; productId: number; productName: string; quantityOrdered: number; quantityReceived: number; quantityMissing?: number; quantityDamaged?: number; costPrice: number; expirationDate?: string }[] }
 export type Staff = { id: number; username: string; displayName: string; enabled: boolean; roles: string[]; stores: { id: number; name: string; code: string }[] }
 export type Package = { id: number; name: string; description?: string; monthlyPrice: number; annualPrice: number; active: boolean; features: Record<string, boolean>; limits: Record<string, number> }
-export type BusinessSettings = { businessName?: string; businessAddress?: string; tin?: string; vatRegistered: boolean; vatRate: number; nearExpirationDays: number; receiptFooter?: string }
+export type BusinessSettings = { businessName?: string; businessAddress?: string; tin?: string; vatRegistered: boolean; vatRate: number; nearExpirationDays: number; nearExpirationDiscountPercent: number; receiptFooter?: string }
 export type Supplier = { id: number; name: string; phone?: string; address?: string }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
-    ...options,
-  })
+  const method = (options?.method ?? 'GET').toUpperCase()
+  const headers = new Headers(options?.headers)
+  const controller = options?.signal ? undefined : new AbortController()
+  const timeout = controller ? window.setTimeout(() => controller.abort(), 15000) : undefined
+  headers.set('Content-Type', 'application/json')
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && !headers.has('X-CSRF-TOKEN') && !headers.has('X-XSRF-TOKEN')) {
+    const csrfResponse = await fetch('/api/auth/csrf', { credentials: 'include' })
+    if (csrfResponse.ok) {
+      const csrf = await csrfResponse.json() as { token: string; headerName: string }
+      headers.set(csrf.headerName, csrf.token)
+    }
+  }
+  let response: Response
+  try {
+    response = await fetch(path, { ...options, credentials: 'include', headers, signal: options?.signal ?? controller?.signal })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw new Error('The request timed out. Check your connection and try again.')
+    throw error
+  } finally {
+    if (timeout) window.clearTimeout(timeout)
+  }
   if (!response.ok) {
     const body = await response.json().catch(() => ({})) as { error?: string }
     throw new Error(body.error ?? `Request failed with status ${response.status}`)
@@ -32,6 +48,9 @@ export const authApi = {
     })
   },
   me: () => request<CurrentUser>('/api/auth/me'),
+  context: () => request<{ vendorId?: number; storeId?: number }>('/api/auth/context'),
+  setContext: (vendorId: number, storeId: number) => request<{ vendorId: number; storeId: number }>('/api/auth/context', { method: 'PUT', body: JSON.stringify({ vendorId, storeId }) }),
+  changePassword: (currentPassword: string, newPassword: string) => request<void>('/api/auth/password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
   logout: async () => {
     const csrf = await request<{ token: string; headerName: string }>('/api/auth/csrf')
     return request<void>('/api/auth/logout', { method: 'POST', headers: { [csrf.headerName]: csrf.token } })
@@ -43,16 +62,19 @@ export const tenantApi = {
   createVendor: (name: string) => request<Vendor>('/api/super-admin/vendors', {
     method: 'POST', body: JSON.stringify({ name }),
   }),
+  vendorStatus: (vendorId: number, status: string) => request<Vendor>(`/api/super-admin/vendors/${vendorId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   stores: (vendorId: number) => request<Store[]>(`/api/vendors/${vendorId}/stores`),
   createStore: (vendorId: number, name: string, code: string, address: string) => request<Store>(`/api/vendors/${vendorId}/stores`, {
     method: 'POST', body: JSON.stringify({ name, code, address }),
   }),
+  storeStatus: (vendorId: number, storeId: number, status: string) => request<Store>(`/api/vendors/${vendorId}/stores/${storeId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
 }
 
 export const staffApi = {
   list: (vendorId: number) => request<Staff[]>(`/api/vendors/${vendorId}/staff`),
   create: (vendorId: number, payload: { username: string; password: string; displayName: string; role: string; storeIds: number[] }) => request<Staff>(`/api/vendors/${vendorId}/staff`, { method: 'POST', body: JSON.stringify(payload) }),
   status: (vendorId: number, userId: number, status: string) => request<Staff>(`/api/vendors/${vendorId}/staff/${userId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  assignStores: (vendorId: number, userId: number, storeIds: number[]) => request<Staff>(`/api/vendors/${vendorId}/staff/${userId}/stores`, { method: 'PUT', body: JSON.stringify({ storeIds }) }),
 }
 
 export const packageApi = {
@@ -63,6 +85,10 @@ export const packageApi = {
   subscription: (vendorId: number) => request<{ packageName: string; status: string }>(`/api/vendors/${vendorId}/subscription`),
   select: (vendorId: number, packageId: number) => request<unknown>(`/api/vendors/${vendorId}/subscription`, { method: 'PUT', body: JSON.stringify({ packageId }) }),
   entitlements: (vendorId: number) => request<{ features: Record<string, boolean>; limits: Record<string, number> }>(`/api/vendors/${vendorId}/entitlements`),
+}
+
+export const auditApi = {
+  list: () => request<{ id: number; action: string; entityType?: string; entityId?: string; details?: string; createdAt: string; username?: string }[]>('/api/super-admin/audit'),
 }
 
 export const billingApi = {
@@ -85,6 +111,7 @@ export const catalogApi = {
 
 export const inventoryApi = {
   list: (vendorId: number, storeId: number, status?: string) => request<InventoryBatch[]>(`/api/vendors/${vendorId}/stores/${storeId}/inventory${status ? `?status=${status}` : ''}`),
+  movements: (vendorId: number, storeId: number) => request<{ id: number; productId: number; productName: string; batchId?: number; movementType: string; quantityDelta: number; reason?: string; referenceType?: string; referenceId?: string; createdAt: string; createdBy?: string }[]>(`/api/vendors/${vendorId}/stores/${storeId}/inventory/movements`),
   receive: (vendorId: number, storeId: number, productId: number, quantity: number, costPrice: number, expirationDate?: string) => request<InventoryBatch>(`/api/vendors/${vendorId}/stores/${storeId}/inventory/receive`, { method: 'POST', body: JSON.stringify({ productId, quantity, costPrice, expirationDate }) }),
   adjust: (vendorId: number, storeId: number, batchId: number, quantityDelta: number, reason: string) => request<InventoryBatch>(`/api/vendors/${vendorId}/stores/${storeId}/inventory/adjust`, { method: 'POST', body: JSON.stringify({ batchId, quantityDelta, reason }) }),
 }
@@ -93,11 +120,17 @@ export const posApi = {
   sale: (vendorId: number, storeId: number, items: { productId: number; quantity: number }[], amountTendered: number, discountAmount = 0, paymentMethod = 'CASH') => request<{ id: number; receiptNumber: string; subtotal: number; discountAmount: number; vatAmount: number; totalAmount: number; changeAmount: number; paymentMethod: string }>(`/api/vendors/${vendorId}/stores/${storeId}/sales`, {
     method: 'POST', body: JSON.stringify({ items, paymentMethod, amountTendered, discountAmount }),
   }),
+  voidSale: (vendorId: number, storeId: number, saleId: number) => request<unknown>(`/api/vendors/${vendorId}/stores/${storeId}/sales/${saleId}/void`, { method: 'POST' }),
+}
+
+export const receiptApi = {
+  markPrinted: (vendorId: number, storeId: number, saleId: number) => request<unknown>(`/api/vendors/${vendorId}/stores/${storeId}/sales/${saleId}/receipt/printed`, { method: 'POST' }),
 }
 
 export const debtApi = {
   accounts: (vendorId: number) => request<Debt[]>(`/api/vendors/${vendorId}/debt/accounts`),
-  pay: (vendorId: number, accountId: number, amount: number, notes: string) => request<{ id: number; amount: number; paymentMethod: string; paidAt: string }>(`/api/vendors/${vendorId}/debt/accounts/${accountId}/payments`, { method: 'POST', body: JSON.stringify({ amount, paymentMethod: 'CASH', notes }) }),
+  aging: (vendorId: number) => request<{ bucket: string; accountCount: number; balance: number }[]>(`/api/vendors/${vendorId}/debt/aging`),
+  pay: (vendorId: number, accountId: number, amount: number, notes: string) => request<{ id: number; amount: number; paymentMethod: string; paidAt: string; receiptNumber: string }>(`/api/vendors/${vendorId}/debt/accounts/${accountId}/payments`, { method: 'POST', body: JSON.stringify({ amount, paymentMethod: 'CASH', notes }) }),
 }
 
 export const deliveryApi = {
@@ -105,6 +138,7 @@ export const deliveryApi = {
   create: (vendorId: number, storeId: number, payload: Record<string, unknown>) => request<Delivery>(`/api/vendors/${vendorId}/stores/${storeId}/deliveries`, { method: 'POST', body: JSON.stringify(payload) }),
   status: (vendorId: number, storeId: number, deliveryId: number, status: string) => request<Delivery>(`/api/vendors/${vendorId}/stores/${storeId}/deliveries/${deliveryId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   receive: (vendorId: number, storeId: number, deliveryId: number) => request<Delivery>(`/api/vendors/${vendorId}/stores/${storeId}/deliveries/${deliveryId}/receive`, { method: 'PUT' }),
+  receiveDetails: (vendorId: number, storeId: number, deliveryId: number, items: { deliveryItemId: number; received: number; missing: number; damaged: number }[]) => request<Delivery>(`/api/vendors/${vendorId}/stores/${storeId}/deliveries/${deliveryId}/receive-details`, { method: 'PUT', body: JSON.stringify({ items }) }),
 }
 
 export const supplierApi = {
@@ -114,6 +148,11 @@ export const supplierApi = {
 
 export const reportApi = {
   sales: (vendorId: number, storeId: number) => request<{ saleCount: number; subtotal: number; discount: number; vat: number; total: number }>(`/api/vendors/${vendorId}/stores/${storeId}/reports/sales`),
-  lowStock: (vendorId: number, storeId: number) => request<{ productId: number; productName: string; quantity: number; reorderLevel: number }[]>(`/api/vendors/${vendorId}/stores/${storeId}/reports/low-stock`),
-  expiration: (vendorId: number, storeId: number) => request<{ batchId: number; productName: string; quantity: number; expirationDate: string }[]>(`/api/vendors/${vendorId}/stores/${storeId}/reports/expiration`),
+  lowStock: (vendorId: number, storeId: number) => request<{ productId: number; productName: string; sku: string; quantity: number; reorderLevel: number }[]>(`/api/vendors/${vendorId}/stores/${storeId}/reports/low-stock`),
+  expiration: (vendorId: number, storeId: number) => request<{ batchId: number; productName: string; sku: string; quantity: number; expirationDate: string }[]>(`/api/vendors/${vendorId}/stores/${storeId}/reports/expiration`),
+  bestSelling: (vendorId: number, storeId: number) => request<{ productId: number; productName: string; quantity: number; revenue: number }[]>(`/api/vendors/${vendorId}/stores/${storeId}/reports/best-selling`),
+  payments: (vendorId: number, storeId: number) => request<{ paymentMethod: string; paymentCount: number; amount: number }[]>(`/api/vendors/${vendorId}/stores/${storeId}/reports/payments`),
+  profit: (vendorId: number, storeId: number) => request<{ revenue: number; cost: number }>(`/api/vendors/${vendorId}/stores/${storeId}/reports/profit`),
+  deliveryHistory: (vendorId: number, storeId: number) => request<{ id: number; supplierName: string; expectedDate: string; status: string; itemCount: number; quantityOrdered: number; quantityReceived: number }[]>(`/api/vendors/${vendorId}/stores/${storeId}/reports/delivery-history`),
+  vatSummary: (vendorId: number, storeId: number) => request<{ vatRegistered: boolean; vatRate: number; netSales: number; vatAmount: number; grossSales: number; from: string; to: string }>(`/api/vendors/${vendorId}/stores/${storeId}/reports/vat-summary`),
 }

@@ -18,11 +18,11 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/vendors/{vendorId}/stores/{storeId}/sales/{saleId}/receipt")
 public class ReceiptController {
     private final JdbcTemplate jdbcTemplate;
-    private final TenantAccessService tenantAccessService;
+    private final PermissionAccessService permissionAccessService;
 
-    public ReceiptController(JdbcTemplate jdbcTemplate, TenantAccessService tenantAccessService) {
+    public ReceiptController(JdbcTemplate jdbcTemplate, PermissionAccessService permissionAccessService) {
         this.jdbcTemplate = jdbcTemplate;
-        this.tenantAccessService = tenantAccessService;
+        this.permissionAccessService = permissionAccessService;
     }
 
     @GetMapping
@@ -65,7 +65,7 @@ public class ReceiptController {
         Integer belongs = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM stores WHERE id = ? AND vendor_id = ?", Integer.class, storeId, vendorId);
         if (belongs == null || belongs == 0) throw notFound("Store not found");
         if (authentication.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN"))) return;
-        if (!tenantAccessService.hasStoreAccess(authentication, storeId)) throw new AccessDeniedException("Store access is required");
+        permissionAccessService.require(authentication, vendorId, storeId, "POS_USE");
     }
 
     private ResponseStatusException notFound(String message) { return new ResponseStatusException(HttpStatus.NOT_FOUND, message); }

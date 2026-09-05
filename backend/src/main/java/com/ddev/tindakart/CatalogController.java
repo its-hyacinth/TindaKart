@@ -31,11 +31,14 @@ public class CatalogController {
     private final JdbcTemplate jdbcTemplate;
     private final TenantAccessService tenantAccessService;
     private final PackageAccessService packageAccessService;
+    private final PermissionAccessService permissionAccessService;
 
-    public CatalogController(JdbcTemplate jdbcTemplate, TenantAccessService tenantAccessService, PackageAccessService packageAccessService) {
+    public CatalogController(JdbcTemplate jdbcTemplate, TenantAccessService tenantAccessService,
+                             PackageAccessService packageAccessService, PermissionAccessService permissionAccessService) {
         this.jdbcTemplate = jdbcTemplate;
         this.tenantAccessService = tenantAccessService;
         this.packageAccessService = packageAccessService;
+        this.permissionAccessService = permissionAccessService;
     }
 
     @GetMapping("/categories")
@@ -167,9 +170,7 @@ public class CatalogController {
     }
 
     private void requireVendorAdmin(Authentication authentication, Long vendorId) {
-        if (!tenantAccessService.hasVendorRole(authentication, vendorId, "VENDOR_ADMIN")) {
-            throw new AccessDeniedException("Vendor Admin permission is required");
-        }
+        permissionAccessService.requireVendor(authentication, vendorId, "CATALOG_MANAGE");
     }
 
     private void requireVendorAccess(Authentication authentication, Long vendorId) {
