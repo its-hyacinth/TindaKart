@@ -42,6 +42,7 @@ Super Admin routes use `/api/super-admin`. Vendor routes require the authenticat
 | GET/POST | `/api/vendors/{vendorId}/categories` | List or create categories |
 | GET/POST | `/api/vendors/{vendorId}/products` | Search or create products |
 | GET | `/api/vendors/{vendorId}/products/barcode/{barcode}` | Resolve a barcode |
+| GET | `/api/vendors/{vendorId}/stores/{storeId}/sales/customers` | List customers available for POS credit sales within the authorized store context |
 | GET | `/api/vendors/{vendorId}/stores/{storeId}/inventory` | List current inventory batches |
 | GET | `/api/vendors/{vendorId}/stores/{storeId}/inventory/movements` | List recent inventory movements |
 | POST | `/api/vendors/{vendorId}/stores/{storeId}/inventory/receive` | Receive stock |
@@ -65,7 +66,7 @@ Super Admin routes use `/api/super-admin`. Vendor routes require the authenticat
 | PUT | `/api/vendors/{vendorId}/stores/{storeId}/deliveries/{deliveryId}/receive-details` | Receive with missing/damaged quantities |
 | GET/POST | `/api/vendors/{vendorId}/suppliers` | List or create suppliers |
 | GET | `/api/vendors/{vendorId}/stores/{storeId}/reports/{report}` | Sales, stock, expiration, delivery, payment, profit, and best-selling reports |
-| GET/PUT | `/api/vendors/{vendorId}/settings` | Read or update business/VAT/expiration settings, including near-expiration discount percentage |
+| GET/PUT | `/api/vendors/{vendorId}/settings` | Read or update business/VAT/expiration settings, POS payment methods, camera scanning, and receipt output mode |
 | GET | `/api/vendors/{vendorId}/entitlements` | Read package feature and limit entitlements |
 | GET/POST | `/api/super-admin/packages` | List or create subscription packages |
 | PUT | `/api/super-admin/packages/{packageId}` | Update a subscription package |
@@ -73,6 +74,7 @@ Super Admin routes use `/api/super-admin`. Vendor routes require the authenticat
 | PUT | `/api/vendors/{vendorId}/subscription` | Select a package |
 | POST | `/api/vendors/{vendorId}/billing/checkout` | Create a subscription checkout session |
 | GET | `/api/vendors/{vendorId}/billing/checkout` | Read billing history |
+| POST | `/api/billing/webhooks/paymongo` | Receive a signed PayMongo event; public at the HTTP layer, HMAC signature required, idempotent by provider event ID |
 | POST | `/api/vendors/{vendorId}/stores/{storeId}/sales/{saleId}/receipt/printed` | Record controlled receipt printing/reprinting |
 
 ## Operational rules
@@ -82,7 +84,11 @@ Super Admin routes use `/api/super-admin`. Vendor routes require the authenticat
 - Expired inventory cannot be sold.
 - Near-expiration discounts are vendor-configured, limited to 0–100%, and applied only when all allocated stock for a line is within the configured warning window.
 - Sales, stock deduction, movement records, and receipt numbering are transactional.
+- POS credit sales require a vendor customer and future due date; the backend creates or updates the corresponding debt account.
 - Subscription billing is separate from store POS payment methods.
+- POS payment methods default to `CASH`, `CARD`, `EWALLET`, and `CREDIT`, but Vendor Admin can configure the allowed list per vendor. The backend enforces the list.
+- Receipt output mode is vendor-configurable as `BROWSER`, `THERMAL_BRIDGE`, or `MANUAL`; the current frontend implements browser preview while hardware integration remains an acceptance item.
+- PayMongo webhook requests bypass browser session/CSRF checks because they are server-to-server; the backend validates the `Paymongo-Signature` HMAC before processing.
 - PayMongo secrets remain backend-only and are never returned to the PWA.
 
 ## Health checks

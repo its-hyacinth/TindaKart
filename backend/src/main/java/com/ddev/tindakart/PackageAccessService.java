@@ -18,7 +18,9 @@ public class PackageAccessService {
                 + "JOIN package_features pf ON pf.package_id = vs.package_id "
                 + "WHERE vs.vendor_id = ? AND vs.status IN ('TRIAL', 'ACTIVE') AND pf.feature_key = ? AND pf.enabled = TRUE",
                 Integer.class, vendorId, featureKey);
-        if (enabled == null || enabled == 0) throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+        Integer addon = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM vendor_feature_addons "
+                + "WHERE vendor_id = ? AND feature_key = ? AND active = TRUE", Integer.class, vendorId, featureKey);
+        if ((enabled == null || enabled == 0) && (addon == null || addon == 0)) throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                 "Your package does not include the " + featureKey + " feature");
     }
 
@@ -27,6 +29,12 @@ public class PackageAccessService {
                         + "JOIN package_limits pl ON pl.package_id = vs.package_id WHERE vs.vendor_id = ? "
                         + "AND vs.status IN ('TRIAL', 'ACTIVE') AND pl.limit_key = ?",
                 (rs, rowNum) -> rs.getInt("limit_value"), vendorId, limitKey).stream().findFirst().orElse(null);
-        return limit == null || currentValue + requestedIncrease <= limit;
+        if (limit == null) return true;
+        if ("MAX_STAFF".equals(limitKey)) {
+            Integer purchasedSeats = jdbcTemplate.query("SELECT seat_count FROM vendor_staff_seats WHERE vendor_id = ?",
+                    (rs, rowNum) -> rs.getInt("seat_count"), vendorId).stream().findFirst().orElse(0);
+            limit += purchasedSeats;
+        }
+        return currentValue + requestedIncrease <= limit;
     }
 }

@@ -59,6 +59,8 @@ Do not sell expired batches. Near-expiration discounting is controlled by Vendor
 
 Follow [BACKUP_PROCEDURE.md](BACKUP_PROCEDURE.md). Backups may contain client data and must remain outside source control. Test restoration into an isolated database before any production recovery. Never use destructive reset migrations against a client database.
 
+For pre-migration data-quality review, run the read-only checks in [DATABASE_AUDIT_PROCEDURE.md](DATABASE_AUDIT_PROCEDURE.md) and retain the reviewed results with the backup record.
+
 ## Troubleshooting
 
 - Database health is down: verify PostgreSQL is running, `.env` values are correct, and port 5432 is available.
@@ -72,6 +74,8 @@ Follow [BACKUP_PROCEDURE.md](BACKUP_PROCEDURE.md). Backups may contain client da
 
 Before client rollout, the owner must approve the vendor/store policy, roles, tax/receipt layout, payment methods, printer, offline behavior, and acceptance criteria. A deployment must additionally provide HTTPS, environment-injected secrets, scheduled database backups, monitoring/log retention, and a controlled pilot. These are not assumed to be complete from local verification.
 
+The staging and production Spring profiles mark session cookies as Secure, HttpOnly, and SameSite=Lax. They must only be used behind HTTPS; local development keeps the Secure flag off so localhost sessions work.
+
 Recommended verification commands:
 
 ```powershell
@@ -81,3 +85,11 @@ cd frontend
 .\node_modules\.bin\tsc.cmd -p tsconfig.app.json --noEmit --incremental false
 npx vite build --configLoader runner
 ```
+
+The normal test task excludes database-mutating integration tests. After configuring a disposable or backed-up local PostgreSQL database, run the opt-in multistore authorization check with:
+
+```powershell
+.\gradlew.bat :backend:integrationTest --no-daemon --console=plain
+```
+
+That test creates uniquely named fixture rows and removes them during teardown. Do not point it at a client production database.

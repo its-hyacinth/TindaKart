@@ -61,9 +61,9 @@ public class StaffManagementController {
                                              @Valid @RequestBody CreateStaffRequest request,
                                              Authentication authentication) {
         requireVendorAdmin(authentication, vendorId);
-        long currentStaff = jdbcTemplate.queryForObject("SELECT COUNT(DISTINCT u.id) FROM users u WHERE EXISTS "
+        long currentStaff = jdbcTemplate.queryForObject("SELECT COUNT(DISTINCT u.id) FROM users u WHERE u.id <> COALESCE((SELECT owner_user_id FROM vendors WHERE id = ?), -1) AND (EXISTS "
                 + "(SELECT 1 FROM vendor_user_roles vur WHERE vur.user_id = u.id AND vur.vendor_id = ?) OR EXISTS "
-                + "(SELECT 1 FROM store_user_roles sur JOIN stores s ON s.id = sur.store_id WHERE sur.user_id = u.id AND s.vendor_id = ?)", Long.class, vendorId, vendorId);
+                + "(SELECT 1 FROM store_user_roles sur JOIN stores s ON s.id = sur.store_id WHERE sur.user_id = u.id AND s.vendor_id = ?))", Long.class, vendorId, vendorId, vendorId);
         if (!packageAccessService.withinLimit(vendorId, "MAX_STAFF", currentStaff, 1)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Your package staff limit has been reached");
         }

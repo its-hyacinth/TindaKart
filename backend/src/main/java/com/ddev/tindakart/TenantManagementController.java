@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -43,11 +44,15 @@ public class TenantManagementController {
     }
 
     @PostMapping("/super-admin/vendors")
+    @Transactional
     public ResponseEntity<VendorView> createVendor(
             @Valid @RequestBody VendorRequest request, Authentication authentication) {
         requireRole(authentication, "ROLE_SUPER_ADMIN");
         Long id = jdbcTemplate.queryForObject(
                 "INSERT INTO vendors (name) VALUES (?) RETURNING id", Long.class, request.name().trim());
+        Long freePackageId = jdbcTemplate.queryForObject("SELECT id FROM packages WHERE name = 'Free' AND active = TRUE", Long.class);
+        jdbcTemplate.update("INSERT INTO vendor_subscriptions (vendor_id, package_id, status) VALUES (?, ?, 'ACTIVE')", id, freePackageId);
+        jdbcTemplate.update("INSERT INTO vendor_staff_seats (vendor_id, seat_count, monthly_unit_price) VALUES (?, 0, 0) ON CONFLICT (vendor_id) DO NOTHING", id);
         auditService.record(authentication.getName(), "VENDOR_CREATED", "VENDOR", id.toString(), request.name().trim());
         return ResponseEntity.status(HttpStatus.CREATED).body(findVendor(id));
     }

@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Map;
@@ -17,6 +18,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,14 +35,17 @@ public class AuthController {
     private final JdbcTemplate jdbcTemplate;
     private final AuditService auditService;
     private final PasswordEncoder passwordEncoder;
+    private final TenantContextService tenantContextService;
 
     public AuthController(AuthenticationManager authenticationManager, TenantAccessService tenantAccessService,
-                          JdbcTemplate jdbcTemplate, AuditService auditService, PasswordEncoder passwordEncoder) {
+                          JdbcTemplate jdbcTemplate, AuditService auditService, PasswordEncoder passwordEncoder,
+                          TenantContextService tenantContextService) {
         this.authenticationManager = authenticationManager;
         this.tenantAccessService = tenantAccessService;
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
         this.passwordEncoder = passwordEncoder;
+        this.tenantContextService = tenantContextService;
     }
 
     @PostMapping("/login")
@@ -67,6 +72,29 @@ public class AuthController {
         }
     }
 
+    @PostMapping("/register-vendor")
+    @Transactional
+    public ResponseEntity<?> registerVendor(@Valid @RequestBody VendorRegistrationRequest request) {
+        Long userId;
+        try {
+            userId = jdbcTemplate.queryForObject("INSERT INTO users (username, password_hash, display_name) VALUES (?, ?, ?) RETURNING id",
+                    Long.class, request.username().trim(), passwordEncoder.encode(request.password()), request.displayName().trim());
+        } catch (org.springframework.dao.DuplicateKeyException ex) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Username already exists"));
+        }
+        Long vendorId = jdbcTemplate.queryForObject("INSERT INTO vendors (name, status, owner_user_id) VALUES (?, 'ACTIVE', ?) RETURNING id",
+                Long.class, request.vendorName().trim(), userId);
+        Long storeId = jdbcTemplate.queryForObject("INSERT INTO stores (vendor_id, name, code) VALUES (?, ?, ?) RETURNING id",
+                Long.class, vendorId, request.storeName().trim(), request.storeCode().trim().toUpperCase());
+        jdbcTemplate.update("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name = 'VENDOR_ADMIN' ON CONFLICT DO NOTHING", userId);
+        jdbcTemplate.update("INSERT INTO vendor_user_roles (user_id, vendor_id, role_id) SELECT ?, ?, id FROM roles WHERE name = 'VENDOR_ADMIN'", userId, vendorId);
+        Long freePackageId = jdbcTemplate.queryForObject("SELECT id FROM packages WHERE name = 'Free' AND active = TRUE", Long.class);
+        jdbcTemplate.update("INSERT INTO vendor_subscriptions (vendor_id, package_id, status) VALUES (?, ?, 'ACTIVE')", vendorId, freePackageId);
+        jdbcTemplate.update("INSERT INTO vendor_staff_seats (vendor_id, seat_count, monthly_unit_price) VALUES (?, 0, 0) ON CONFLICT (vendor_id) DO NOTHING", vendorId);
+        auditService.record(request.username().trim(), "VENDOR_REGISTERED", "VENDOR", vendorId.toString(), request.vendorName().trim());
+        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("username", request.username().trim(), "vendorId", vendorId, "storeId", storeId, "plan", "Free"));
+    }
+
     private boolean isLocked(String username) {
         return jdbcTemplate.query("SELECT locked_until FROM login_attempts WHERE LOWER(username) = LOWER(?)",
                 (rs, rowNum) -> rs.getObject("locked_until", OffsetDateTime.class), username).stream()
@@ -90,24 +118,14 @@ public class AuthController {
     }
 
     @GetMapping("/context")
-    public ContextView context(HttpServletRequest request) {
-        HttpSession session = request.getSession(false);
-        return new ContextView(session == null ? null : (Long) session.getAttribute("CURRENT_VENDOR_ID"),
-                session == null ? null : (Long) session.getAttribute("CURRENT_STORE_ID"));
+    public ContextView context(HttpServletRequest request, Authentication authentication) {
+        return tenantContextService.resolve(request, authentication);
     }
 
     @PutMapping("/context")
     public ContextView setContext(@Valid @RequestBody ContextRequest context, Authentication authentication,
                                   HttpServletRequest request) {
-        if (!tenantAccessService.storeBelongsToVendor(context.vendorId(), context.storeId())
-                || (!authentication.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN"))
-                && !tenantAccessService.hasStoreAccess(authentication, context.storeId()))) {
-            throw new org.springframework.security.access.AccessDeniedException("You do not have access to this vendor/store context");
-        }
-        HttpSession session = request.getSession(true);
-        session.setAttribute("CURRENT_VENDOR_ID", context.vendorId());
-        session.setAttribute("CURRENT_STORE_ID", context.storeId());
-        return new ContextView(context.vendorId(), context.storeId());
+        return tenantContextService.set(request, authentication, context.vendorId(), context.storeId());
     }
 
     @PostMapping("/logout")
@@ -146,6 +164,12 @@ public class AuthController {
     }
 
     public record LoginRequest(@NotBlank String username, @NotBlank String password) { }
+    public record VendorRegistrationRequest(@NotBlank @Size(max = 120) String username,
+                                            @NotBlank @Size(min = 8, max = 255) String password,
+                                            @NotBlank @Size(max = 255) String displayName,
+                                            @NotBlank @Size(max = 255) String vendorName,
+                                            @NotBlank @Size(max = 255) String storeName,
+                                            @NotBlank @Size(max = 80) String storeCode) { }
     public record PasswordChangeRequest(@NotBlank String currentPassword, @NotBlank @jakarta.validation.constraints.Size(min = 8, max = 255) String newPassword) { }
     public record ContextRequest(@jakarta.validation.constraints.NotNull Long vendorId,
                                  @jakarta.validation.constraints.NotNull Long storeId) { }

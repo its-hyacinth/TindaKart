@@ -5,10 +5,13 @@ export type Category = { id: number; vendorId: number; name: string; active: boo
 export type Product = { id: number; vendorId: number; categoryId?: number; categoryName?: string; name: string; sku: string; unitType: string; retailPrice: number; bulkPrice?: number; bulkThreshold?: number; barcodes: string[] }
 export type InventoryBatch = { id: number; productId: number; productName: string; sku: string; categoryName?: string; unitType: string; barcodes?: string; batchReference?: string; quantityOnHand: number; retailPrice: number; bulkPrice?: number; expirationDate?: string; status: string }
 export type Debt = { id: number; customerId: number; customerName: string; phone?: string; status: string; totalCredit: number; totalPaid: number; balance: number }
+export type Customer = { id: number; name: string; phone?: string }
 export type Delivery = { id: number; supplierId: number; supplierName: string; expectedDate: string; status: string; notes?: string; items: { id: number; productId: number; productName: string; quantityOrdered: number; quantityReceived: number; quantityMissing?: number; quantityDamaged?: number; costPrice: number; expirationDate?: string }[] }
 export type Staff = { id: number; username: string; displayName: string; enabled: boolean; roles: string[]; stores: { id: number; name: string; code: string }[] }
 export type Package = { id: number; name: string; description?: string; monthlyPrice: number; annualPrice: number; active: boolean; features: Record<string, boolean>; limits: Record<string, number> }
-export type BusinessSettings = { businessName?: string; businessAddress?: string; tin?: string; vatRegistered: boolean; vatRate: number; nearExpirationDays: number; nearExpirationDiscountPercent: number; receiptFooter?: string }
+export type CustomAddonPrice = { featureKey: string; displayName: string; description?: string; monthlyPrice: number; active: boolean }
+export type PublicPackage = { id: number; name: string; description?: string; monthlyPrice: number; annualPrice: number; features: string[]; limits?: Record<string, number> }
+export type BusinessSettings = { businessName?: string; businessAddress?: string; tin?: string; vatRegistered: boolean; vatRate: number; nearExpirationDays: number; nearExpirationDiscountPercent: number; receiptFooter?: string; posPaymentMethods: string[]; cameraScanningEnabled: boolean; receiptPrintMode: string }
 export type Supplier = { id: number; name: string; phone?: string; address?: string }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -47,6 +50,7 @@ export const authApi = {
       method: 'POST', headers: { [csrf.headerName]: csrf.token }, body: JSON.stringify({ username, password }),
     })
   },
+  registerVendor: (payload: { username: string; password: string; displayName: string; vendorName: string; storeName: string; storeCode: string }) => request<{ username: string; vendorId: number; storeId: number; plan: string }>('/api/auth/register-vendor', { method: 'POST', body: JSON.stringify(payload) }),
   me: () => request<CurrentUser>('/api/auth/me'),
   context: () => request<{ vendorId?: number; storeId?: number }>('/api/auth/context'),
   setContext: (vendorId: number, storeId: number) => request<{ vendorId: number; storeId: number }>('/api/auth/context', { method: 'PUT', body: JSON.stringify({ vendorId, storeId }) }),
@@ -54,6 +58,14 @@ export const authApi = {
   logout: async () => {
     const csrf = await request<{ token: string; headerName: string }>('/api/auth/csrf')
     return request<void>('/api/auth/logout', { method: 'POST', headers: { [csrf.headerName]: csrf.token } })
+  },
+}
+
+export const publicApi = {
+  packages: async () => {
+    const plans = await request<PublicPackage[]>('/api/public/packages')
+    const fallbackLimits: Record<string, Record<string, number>> = { Free: { MAX_STORES: 1, MAX_PRODUCTS: 100, MAX_STAFF: 0 }, Growth: { MAX_STORES: 3, MAX_PRODUCTS: 2500, MAX_STAFF: 5 }, Pro: { MAX_STORES: 100000, MAX_PRODUCTS: 100000, MAX_STAFF: 100000 } }
+    return plans.map(plan => ({ ...plan, limits: plan.limits ?? fallbackLimits[plan.name] ?? {} }))
   },
 }
 
@@ -87,6 +99,12 @@ export const packageApi = {
   entitlements: (vendorId: number) => request<{ features: Record<string, boolean>; limits: Record<string, number> }>(`/api/vendors/${vendorId}/entitlements`),
 }
 
+export const customPlanApi = {
+  prices: () => request<CustomAddonPrice[]>('/api/super-admin/custom-pricing'),
+  updatePrice: (featureKey: string, payload: { displayName: string; description: string; monthlyPrice: number }) => request<CustomAddonPrice>(`/api/super-admin/custom-pricing/${encodeURIComponent(featureKey)}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  current: (vendorId: number) => request<{ staffSeats: number; features: string[]; prices: CustomAddonPrice[] }>(`/api/vendors/${vendorId}/custom-plan`),
+}
+
 export const auditApi = {
   list: () => request<{ id: number; action: string; entityType?: string; entityId?: string; details?: string; createdAt: string; username?: string }[]>('/api/super-admin/audit'),
 }
@@ -94,6 +112,7 @@ export const auditApi = {
 export const billingApi = {
   history: (vendorId: number) => request<{ id: number; checkoutUrl: string; amount: number; currency: string; status: string; createdAt: string }[]>(`/api/vendors/${vendorId}/billing/checkout`),
   checkout: (vendorId: number, billingCycle: string) => request<{ checkoutUrl: string }>(`/api/vendors/${vendorId}/billing/checkout`, { method: 'POST', body: JSON.stringify({ billingCycle }) }),
+  customCheckout: (vendorId: number, billingCycle: string, staffSeats: number, featureKeys: string[]) => request<{ checkoutUrl: string }>(`/api/vendors/${vendorId}/billing/custom-checkout`, { method: 'POST', body: JSON.stringify({ billingCycle, staffSeats, featureKeys }) }),
 }
 
 export const settingsApi = {
@@ -117,8 +136,9 @@ export const inventoryApi = {
 }
 
 export const posApi = {
-  sale: (vendorId: number, storeId: number, items: { productId: number; quantity: number }[], amountTendered: number, discountAmount = 0, paymentMethod = 'CASH') => request<{ id: number; receiptNumber: string; subtotal: number; discountAmount: number; vatAmount: number; totalAmount: number; changeAmount: number; paymentMethod: string }>(`/api/vendors/${vendorId}/stores/${storeId}/sales`, {
-    method: 'POST', body: JSON.stringify({ items, paymentMethod, amountTendered, discountAmount }),
+  customers: (vendorId: number, storeId: number) => request<Customer[]>(`/api/vendors/${vendorId}/stores/${storeId}/sales/customers`),
+  sale: (vendorId: number, storeId: number, items: { productId: number; quantity: number }[], amountTendered: number | undefined, discountAmount = 0, paymentMethod = 'CASH', customerId?: number, dueDate?: string) => request<{ id: number; receiptNumber: string; subtotal: number; discountAmount: number; vatAmount: number; totalAmount: number; changeAmount: number; paymentMethod: string }>(`/api/vendors/${vendorId}/stores/${storeId}/sales`, {
+    method: 'POST', body: JSON.stringify({ items, paymentMethod, amountTendered, discountAmount, customerId, dueDate }),
   }),
   voidSale: (vendorId: number, storeId: number, saleId: number) => request<unknown>(`/api/vendors/${vendorId}/stores/${storeId}/sales/${saleId}/void`, { method: 'POST' }),
 }
@@ -129,6 +149,8 @@ export const receiptApi = {
 
 export const debtApi = {
   accounts: (vendorId: number) => request<Debt[]>(`/api/vendors/${vendorId}/debt/accounts`),
+  payments: (vendorId: number, accountId: number) => request<{ id: number; amount: number; paymentMethod: string; notes?: string; paidAt: string; receiptNumber: string }[]>(`/api/vendors/${vendorId}/debt/accounts/${accountId}/payments`),
+  createCustomer: (vendorId: number, name: string, phone = '', address = '') => request<Customer>(`/api/vendors/${vendorId}/debt/customers`, { method: 'POST', body: JSON.stringify({ name, phone, address }) }),
   aging: (vendorId: number) => request<{ bucket: string; accountCount: number; balance: number }[]>(`/api/vendors/${vendorId}/debt/aging`),
   pay: (vendorId: number, accountId: number, amount: number, notes: string) => request<{ id: number; amount: number; paymentMethod: string; paidAt: string; receiptNumber: string }>(`/api/vendors/${vendorId}/debt/accounts/${accountId}/payments`, { method: 'POST', body: JSON.stringify({ amount, paymentMethod: 'CASH', notes }) }),
 }

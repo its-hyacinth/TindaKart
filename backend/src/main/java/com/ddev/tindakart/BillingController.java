@@ -80,6 +80,36 @@ public class BillingController {
         }
     }
 
+    @PostMapping("/vendors/{vendorId}/billing/custom-checkout")
+    @Transactional
+    public CheckoutView createCustomCheckout(@PathVariable Long vendorId, @Valid @RequestBody CustomCheckoutRequest request,
+                                              Authentication authentication) {
+        requireVendorAdmin(vendorId, authentication);
+        if (!paymentProvider.configured()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Payment provider is not configured");
+        Subscription subscription = jdbcTemplate.query("SELECT vs.id, p.name, p.monthly_price, p.annual_price FROM vendor_subscriptions vs JOIN packages p ON p.id = vs.package_id "
+                        + "WHERE vs.vendor_id = ? AND vs.status IN ('TRIAL', 'ACTIVE') ORDER BY vs.created_at DESC LIMIT 1",
+                (rs, rowNum) -> new Subscription(rs.getLong("id"), rs.getString("name"), rs.getBigDecimal("monthly_price"), rs.getBigDecimal("annual_price")), vendorId)
+                .stream().findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "No active vendor plan found"));
+        List<String> featureKeys = request.featureKeys() == null ? List.of() : request.featureKeys().stream().map(key -> key.trim().toUpperCase()).distinct().toList();
+        if (featureKeys.stream().anyMatch("STAFF_SEAT"::equals)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Use staffSeats for staff pricing");
+        List<BigDecimal> featurePrices = featureKeys.isEmpty() ? List.of() : jdbcTemplate.query("SELECT monthly_price FROM platform_addon_prices WHERE feature_key = ANY (?::varchar[]) AND active = TRUE",
+                (rs, rowNum) -> rs.getBigDecimal("monthly_price"), (Object) featureKeys.toArray(String[]::new));
+        if (featurePrices.size() != featureKeys.size()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "One or more feature add-ons are unavailable");
+        BigDecimal seatPrice = jdbcTemplate.queryForObject("SELECT monthly_price FROM platform_addon_prices WHERE feature_key = 'STAFF_SEAT' AND active = TRUE", BigDecimal.class);
+        BigDecimal monthly = seatPrice.multiply(BigDecimal.valueOf(request.staffSeats()));
+        for (BigDecimal price : featurePrices) monthly = monthly.add(price);
+        BigDecimal amount = "ANNUAL".equals(request.billingCycle()) ? monthly.multiply(BigDecimal.valueOf(12)) : monthly;
+        if (amount.signum() <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Select at least one paid staff seat or feature");
+        String metadata = "staffSeats=" + request.staffSeats() + ";features=" + String.join(",", featureKeys);
+        SubscriptionPaymentProvider.Checkout checkout = paymentProvider.createCheckout("TindaKart custom add-ons", amount);
+        try {
+            jdbcTemplate.update("INSERT INTO subscription_checkout_sessions (vendor_subscription_id, provider, provider_checkout_id, checkout_url, amount, purchase_type, purchase_metadata) VALUES (?, 'PAYMONGO', ?, ?, ?, 'CUSTOM_ADDONS', ?)",
+                    subscription.id(), checkout.providerCheckoutId(), checkout.checkoutUrl(), amount, metadata);
+            return jdbcTemplate.query("SELECT id, provider_checkout_id, checkout_url, amount, currency, status, created_at FROM subscription_checkout_sessions WHERE provider_checkout_id = ?",
+                    (rs, rowNum) -> new CheckoutView(rs.getLong("id"), rs.getString("provider_checkout_id"), rs.getString("checkout_url"), rs.getBigDecimal("amount"), rs.getString("currency"), rs.getString("status"), rs.getTimestamp("created_at").toInstant()), checkout.providerCheckoutId()).getFirst();
+        } catch (Exception ex) { throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Invalid response from PayMongo"); }
+    }
+
     @PostMapping(path = "/billing/webhooks/paymongo", consumes = MediaType.APPLICATION_JSON_VALUE)
     @Transactional
     public void paymongoWebhook(@RequestBody String payload, @RequestHeader(value = "Paymongo-Signature", required = false) String signature) {
@@ -103,6 +133,7 @@ public class BillingController {
                 BigDecimal amount = jdbcTemplate.queryForObject("SELECT amount FROM subscription_checkout_sessions WHERE provider_checkout_id = ?", BigDecimal.class, resourceId);
                 jdbcTemplate.update("INSERT INTO subscription_payments (vendor_subscription_id, provider, provider_payment_id, amount, status, paid_at) "
                 + "VALUES (?, 'PAYMONGO', ?, ?, 'PAID', CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING", subscriptionId, resourceId, amount);
+                applyCustomAddons(resourceId, subscriptionId);
             } else if ((normalizedType.contains("failed") || normalizedType.contains("cancel") || normalizedType.contains("expired"))
                     && subscriptionId != null) {
                 String status = normalizedType.contains("expired") ? "EXPIRED" : normalizedType.contains("cancel") ? "CANCELLED" : "PAST_DUE";
@@ -112,6 +143,29 @@ public class BillingController {
             }
         } catch (ResponseStatusException ex) { throw ex; }
         catch (Exception ex) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid webhook payload"); }
+    }
+
+    private void applyCustomAddons(String providerCheckoutId, Long subscriptionId) {
+        CheckoutMetadata metadata = jdbcTemplate.query("SELECT purchase_type, purchase_metadata FROM subscription_checkout_sessions WHERE provider_checkout_id = ?",
+                (rs, rowNum) -> new CheckoutMetadata(rs.getString("purchase_type"), rs.getString("purchase_metadata")), providerCheckoutId)
+                .stream().findFirst().orElse(null);
+        if (metadata == null || !"CUSTOM_ADDONS".equals(metadata.purchaseType())) return;
+        Long vendorId = jdbcTemplate.queryForObject("SELECT vendor_id FROM vendor_subscriptions WHERE id = ?", Long.class, subscriptionId);
+        String raw = metadata.purchaseMetadata() == null ? "" : metadata.purchaseMetadata();
+        int staffSeats = 0;
+        List<String> features = List.of();
+        for (String part : raw.split(";")) {
+            if (part.startsWith("staffSeats=")) staffSeats = Integer.parseInt(part.substring("staffSeats=".length()));
+            if (part.startsWith("features=")) features = part.substring("features=".length()).isBlank() ? List.of() : List.of(part.substring("features=".length()).split(","));
+        }
+        BigDecimal seatPrice = jdbcTemplate.queryForObject("SELECT monthly_price FROM platform_addon_prices WHERE feature_key = 'STAFF_SEAT'", BigDecimal.class);
+        jdbcTemplate.update("INSERT INTO vendor_staff_seats (vendor_id, seat_count, monthly_unit_price) VALUES (?, ?, ?) ON CONFLICT (vendor_id) DO UPDATE SET seat_count = vendor_staff_seats.seat_count + EXCLUDED.seat_count, monthly_unit_price = EXCLUDED.monthly_unit_price, updated_at = CURRENT_TIMESTAMP",
+                vendorId, staffSeats, seatPrice);
+        for (String feature : features) {
+            BigDecimal price = jdbcTemplate.queryForObject("SELECT monthly_price FROM platform_addon_prices WHERE feature_key = ?", BigDecimal.class, feature);
+            jdbcTemplate.update("INSERT INTO vendor_feature_addons (vendor_id, feature_key, monthly_price, active) VALUES (?, ?, ?, TRUE) ON CONFLICT (vendor_id, feature_key) DO UPDATE SET active = TRUE, monthly_price = EXCLUDED.monthly_price",
+                    vendorId, feature, price);
+        }
     }
 
     private boolean validSignature(String payload, String signature) {
@@ -141,6 +195,9 @@ public class BillingController {
     }
 
     private record Subscription(Long id, String packageName, BigDecimal monthlyPrice, BigDecimal annualPrice) { }
+    private record CheckoutMetadata(String purchaseType, String purchaseMetadata) { }
     public record CheckoutRequest(@NotBlank String billingCycle) { }
+    public record CustomCheckoutRequest(@NotBlank String billingCycle, @jakarta.validation.constraints.Min(0) int staffSeats,
+                                        List<String> featureKeys) { }
     public record CheckoutView(Long id, String providerCheckoutId, String checkoutUrl, BigDecimal amount, String currency, String status, java.time.Instant createdAt) { }
 }

@@ -103,11 +103,26 @@ class MultitenantAuthorizationIntegrationTest {
                 .andExpect(jsonPath("$.vendorId").value(vendorA))
                 .andExpect(jsonPath("$.storeId").value(storeA));
 
+        session.setAttribute("CURRENT_VENDOR_ID", vendorB);
+        session.setAttribute("CURRENT_STORE_ID", storeB);
+        mockMvc.perform(get("/api/auth/context").session(session))
+                .andExpect(status().isForbidden());
+        if (session.getAttribute("CURRENT_VENDOR_ID") != null || session.getAttribute("CURRENT_STORE_ID") != null) {
+            throw new AssertionError("Invalid saved context was not cleared");
+        }
+
         mockMvc.perform(put("/api/auth/context")
                         .session(session)
                         .with(csrf())
                         .contentType("application/json")
                         .content("{\"vendorId\":" + vendorB + ",\"storeId\":" + storeB + "}"))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/vendors/{vendorId}/stores/{storeId}/sales", vendorB, storeB)
+                        .session(session)
+                        .with(csrf())
+                        .contentType("application/json")
+                        .content("{\"items\":[{\"productId\":1,\"quantity\":1}],\"paymentMethod\":\"CASH\",\"discountAmount\":0,\"amountTendered\":10}"))
                 .andExpect(status().isForbidden());
     }
 

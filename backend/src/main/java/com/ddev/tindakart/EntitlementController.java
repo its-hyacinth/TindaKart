@@ -30,9 +30,14 @@ public class EntitlementController {
         Map<String, Boolean> features = new LinkedHashMap<>();
         jdbcTemplate.query("SELECT pf.feature_key, pf.enabled FROM vendor_subscriptions vs JOIN package_features pf ON pf.package_id = vs.package_id WHERE vs.vendor_id = ? AND vs.status IN ('TRIAL', 'ACTIVE')",
                 (org.springframework.jdbc.core.RowCallbackHandler) rs -> features.put(rs.getString("feature_key"), rs.getBoolean("enabled")), vendorId);
+        jdbcTemplate.query("SELECT feature_key FROM vendor_feature_addons WHERE vendor_id = ? AND active = TRUE",
+                (org.springframework.jdbc.core.RowCallbackHandler) rs -> features.put(rs.getString("feature_key"), true), vendorId);
         Map<String, Integer> limits = new LinkedHashMap<>();
         jdbcTemplate.query("SELECT pl.limit_key, pl.limit_value FROM vendor_subscriptions vs JOIN package_limits pl ON pl.package_id = vs.package_id WHERE vs.vendor_id = ? AND vs.status IN ('TRIAL', 'ACTIVE')",
                 (org.springframework.jdbc.core.RowCallbackHandler) rs -> limits.put(rs.getString("limit_key"), rs.getInt("limit_value")), vendorId);
+        Integer seats = jdbcTemplate.query("SELECT seat_count FROM vendor_staff_seats WHERE vendor_id = ?",
+                (rs, rowNum) -> rs.getInt("seat_count"), vendorId).stream().findFirst().orElse(0);
+        limits.computeIfPresent("MAX_STAFF", (key, value) -> value + seats);
         return new Entitlements(features, limits);
     }
 

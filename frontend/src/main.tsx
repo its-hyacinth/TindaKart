@@ -1,157 +1,118 @@
-import { StrictMode, useEffect, useState, type FormEvent } from 'react'
+import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { authApi, tenantApi, type CurrentUser, type Store, type Vendor } from './api'
-import { OperationsWorkspace } from './operations'
-import { AccountSecurity, AdminWorkspace } from './admin'
-import './styles.css'
+import { authApi, tenantApi, type CurrentUser } from './api'
+import { AdminShell, type AdminView } from './components/admin/AdminShell'
+import { AdminOverviewPage } from './pages/admin/AdminOverviewPage'
+import { AuditLogPage } from './pages/admin/AuditLogPage'
+import { AdminSettingsPage } from './pages/admin/AdminSettingsPage'
+import { BillingActivityPage } from './pages/admin/BillingActivityPage'
+import { PlansPricingPage } from './pages/admin/PlansPricingPage'
+import { VendorManagementPage } from './pages/admin/VendorManagementPage'
+import { VendorModulePage } from './pages/vendor/VendorModulePage'
+import { VendorOverviewPage } from './pages/vendor/VendorOverviewPage'
+import { VendorShell, type VendorView } from './components/vendor/VendorShell'
+import { LandingPage } from './pages/LandingPage'
+import { LoginPage, RegistrationPage } from './pages/LoginPage'
+import './index.css'
+
+type Screen = 'landing' | 'login' | 'register'
+type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> }
+
+function isSuperAdmin(user: CurrentUser) {
+  return user.roles.some(role => role === 'SUPER_ADMIN' || role === 'ROLE_SUPER_ADMIN')
+}
+
+function isAdminHost() {
+  return window.location.hostname === 'admin.localhost' || window.location.hostname.startsWith('admin.')
+}
+
+function adminOrigin() {
+  const hostname = window.location.hostname
+  const baseHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === 'admin.localhost' ? 'admin.localhost' : `admin.${hostname.replace(/^admin\./, '').replace(/^www\./, '')}`
+  return `${window.location.protocol}//${baseHost}${window.location.port ? `:${window.location.port}` : ''}`
+}
+
+function storeOrigin() {
+  const hostname = window.location.hostname
+  const baseHost = hostname === 'admin.localhost' ? 'localhost' : hostname.replace(/^admin\./, '')
+  return `${window.location.protocol}//${baseHost}${window.location.port ? `:${window.location.port}` : ''}`
+}
 
 function App() {
   const [user, setUser] = useState<CurrentUser | null>(null)
-  const [checkingSession, setCheckingSession] = useState(true)
-  const [error, setError] = useState('')
-  const [online, setOnline] = useState(() => navigator.onLine)
-
+  const [screen, setScreen] = useState<Screen>('landing')
+  const [checking, setChecking] = useState(true)
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null)
+  const [installed, setInstalled] = useState(false)
+  const [installMessage, setInstallMessage] = useState('')
   useEffect(() => {
-    authApi.me().then(setUser).catch(() => undefined).finally(() => setCheckingSession(false))
+    authApi.me().then(async currentUser => {
+      if (!isAdminHost() && isSuperAdmin(currentUser)) {
+        window.localStorage.clear()
+        window.sessionStorage.clear()
+        await authApi.logout().catch(() => undefined)
+        setUser(null)
+        return
+      }
+      setUser(currentUser)
+    }).catch(() => undefined).finally(() => setChecking(false))
   }, [])
-
   useEffect(() => {
-    const onlineEvent = () => setOnline(true)
-    const offlineEvent = () => setOnline(false)
-    window.addEventListener('online', onlineEvent)
-    window.addEventListener('offline', offlineEvent)
-    return () => { window.removeEventListener('online', onlineEvent); window.removeEventListener('offline', offlineEvent) }
+    const standalone = window.matchMedia('(display-mode: standalone)').matches || ('standalone' in navigator && Boolean((navigator as Navigator & { standalone?: boolean }).standalone))
+    setInstalled(standalone)
+    const available = (event: Event) => { event.preventDefault(); setInstallPrompt(event as InstallPromptEvent) }
+    const completed = () => { setInstalled(true); setInstallPrompt(null); setInstallMessage('TindaKart was added to your device.') }
+    window.addEventListener('beforeinstallprompt', available); window.addEventListener('appinstalled', completed)
+    return () => { window.removeEventListener('beforeinstallprompt', available); window.removeEventListener('appinstalled', completed) }
   }, [])
-
-  if (checkingSession) return <main className="centered"><p>Checking session…</p></main>
-  if (!user) return <Login onLogin={setUser} onError={setError} error={error} />
-
-  return <main className="shell">
-    <section className="hero">
-      <span className="eyebrow">Module 1 · Authentication</span>
-      <h1>TindaKart</h1>
-      <p className="subtitle">A responsive store management system for desktop, tablet, and mobile.</p>
-    </section>
-    <section className="status-card" aria-live="polite">
-      <div><span className="status-dot" /><strong>Signed in as {user.username}</strong></div>
-      <p>Role: {user.roles.join(', ') || 'No role assigned'}</p>
-      {!online && <p className="offline-banner" role="alert">You are offline. Changes require an internet connection and will not be submitted until connectivity returns.</p>}
-      <button className="secondary-button" onClick={() => authApi.logout().then(() => setUser(null))}>Sign out</button>
-    </section>
-    <TenantDashboard user={user} />
-    <AccountSecurity onSignedOut={() => setUser(null)} />
-    <AdminWorkspace user={user} />
-    <OperationsWorkspace user={user} />
-    <section className="next-grid">
-      <article><span>01</span><h2>Secure foundation</h2><p>Passwords are stored as BCrypt hashes, never as plain text.</p></article>
-      <article><span>02</span><h2>Role-aware</h2><p>Owner, cashier, and debt staff roles are ready for protected modules.</p></article>
-      <article><span>03</span><h2>Next module</h2><p>Product categories and the catalog will use this authenticated API.</p></article>
-    </section>
-  </main>
+  async function install() {
+    setInstallMessage('')
+    if (installed) return setInstallMessage('TindaKart is already installed on this device.')
+    if (!installPrompt) return setInstallMessage('Use your browser menu and choose “Install app” or “Add to Home Screen”.')
+    await installPrompt.prompt(); const result = await installPrompt.userChoice; setInstallPrompt(null); if (result.outcome === 'accepted') setInstallMessage('TindaKart is ready to install.')
+  }
+  if (checking) return <main className="grid min-h-screen place-items-center bg-slate-950 text-sm font-semibold text-white">Loading TindaKart…</main>
+  if (user) {
+    if (isSuperAdmin(user) && isAdminHost()) return <SuperAdminPortal user={user} onSignOut={() => authApi.logout().finally(() => setUser(null))} />
+    if (isSuperAdmin(user)) return <AdminSubdomainNotice />
+    if (isAdminHost()) return <AdminAccessDenied onSignOut={() => authApi.logout().finally(() => setUser(null))} />
+    return <VendorPortal user={user} onSignOut={() => authApi.logout().finally(() => setUser(null))} />
+  }
+  if (isAdminHost() && screen === 'landing') return <LoginPage onLogin={setUser} onBack={() => { window.location.href = storeOrigin() }} onRegister={() => { window.location.href = storeOrigin() }} />
+  if (screen === 'login') return <LoginPage onLogin={setUser} onBack={() => setScreen('landing')} onRegister={() => setScreen('register')} />
+  if (screen === 'register') return <RegistrationPage onBack={() => setScreen('landing')} onRegistered={() => setScreen('login')} />
+  return <LandingPage onLogin={() => setScreen('login')} onRegister={() => setScreen('register')} onInstall={install} installed={installed} installMessage={installMessage} />
 }
 
-function TenantDashboard({ user }: { user: CurrentUser }) {
-  const isSuperAdmin = user.roles.includes('SUPER_ADMIN')
-  const [vendors, setVendors] = useState<Vendor[]>(user.vendors ?? [])
-  const [stores, setStores] = useState<Store[]>(user.stores ?? [])
-  const [vendorName, setVendorName] = useState('')
-  const [storeName, setStoreName] = useState('')
-  const [storeCode, setStoreCode] = useState('')
-  const [selectedVendor, setSelectedVendor] = useState<number>(vendors[0]?.id ?? 0)
-  const [message, setMessage] = useState('')
-
-  useEffect(() => {
-    if (!isSuperAdmin) return
-    tenantApi.vendors().then(items => { setVendors(items); setSelectedVendor(items[0]?.id ?? 0) }).catch(error => setMessage(error.message))
-  }, [isSuperAdmin])
-
-  useEffect(() => {
-    if (!selectedVendor) return
-    tenantApi.stores(selectedVendor).then(setStores).catch(error => setMessage(error.message))
-  }, [selectedVendor])
-
-  async function addVendor(event: FormEvent) {
-    event.preventDefault()
-    setMessage('')
-    try {
-      const vendor = await tenantApi.createVendor(vendorName)
-      setVendors(items => [...items, vendor])
-      setVendorName('')
-      setSelectedVendor(vendor.id)
-      setMessage('Vendor created.')
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to create vendor.')
-    }
-  }
-
-  async function addStore(event: FormEvent) {
-    event.preventDefault()
-    setMessage('')
-    try {
-      const store = await tenantApi.createStore(selectedVendor, storeName, storeCode, '')
-      setStores(items => [...items, store])
-      setStoreName('')
-      setStoreCode('')
-      setMessage('Store created.')
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to create store.')
-    }
-  }
-
-  async function toggleVendorStatus(vendor: Vendor) {
-    const nextStatus = vendor.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE'
-    try {
-      const updated = await tenantApi.vendorStatus(vendor.id, nextStatus)
-      setVendors(items => items.map(item => item.id === updated.id ? updated : item))
-      setMessage(`Vendor ${updated.name} is now ${updated.status.toLowerCase()}.`)
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to update vendor status.')
-    }
-  }
-
-  async function toggleStoreStatus(store: Store) {
-    const nextStatus = store.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
-    try {
-      const updated = await tenantApi.storeStatus(store.vendorId, store.id, nextStatus)
-      setStores(items => items.map(item => item.id === updated.id ? updated : item))
-      setMessage(`Store ${updated.name} is now ${updated.status.toLowerCase()}.`)
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to update store status.')
-    }
-  }
-
-  return (
-    <section className="tenant-panel">
-      <div className="section-heading"><div><span className="eyebrow">Module 5A</span><h2>Business workspace</h2></div><span className="scope-badge">{isSuperAdmin ? 'Platform scope' : 'Assigned stores'}</span></div>
-      {isSuperAdmin && <form className="inline-form" onSubmit={addVendor}><input placeholder="New vendor name" value={vendorName} onChange={event => setVendorName(event.target.value)} required /><button className="primary-button compact">Add vendor</button></form>}
-      <label className="select-label">Vendor<select value={selectedVendor} onChange={event => setSelectedVendor(Number(event.target.value))} disabled={!vendors.length}><option value={0}>Select vendor</option>{vendors.map(vendor => <option key={vendor.id} value={vendor.id}>{vendor.name} · {vendor.status}</option>)}</select></label>
-      {isSuperAdmin && selectedVendor > 0 && <div className="store-row"><span>Vendor status: <strong>{vendors.find(vendor => vendor.id === selectedVendor)?.status ?? 'UNKNOWN'}</strong></span>{(() => { const vendor = vendors.find(item => item.id === selectedVendor); return vendor && vendor.status !== 'CANCELLED' ? <button type="button" className="secondary-button compact" onClick={() => toggleVendorStatus(vendor)}>{vendor.status === 'ACTIVE' ? 'Suspend vendor' : 'Activate vendor'}</button> : null })()}</div>}
-      {selectedVendor > 0 && <form className="inline-form" onSubmit={addStore}><input placeholder="Branch name" value={storeName} onChange={event => setStoreName(event.target.value)} required /><input placeholder="Code" value={storeCode} onChange={event => setStoreCode(event.target.value)} required /><button className="primary-button compact">Add store</button></form>}
-      {message && <p className="form-message">{message}</p>}
-      <div className="store-list">{stores.filter(store => !selectedVendor || store.vendorId === selectedVendor).map(store => <div className="store-row" key={store.id}><span><strong>{store.name}</strong><small className="muted"> {store.code} · {store.status}</small></span><button type="button" className="secondary-button compact" onClick={() => toggleStoreStatus(store)}>{store.status === 'ACTIVE' ? 'Disable' : 'Enable'}</button></div>)}{!stores.length && <p className="muted">No stores found for this vendor yet.</p>}</div>
-    </section>
-  )
+function AdminSubdomainNotice() {
+  return <main className="grid min-h-screen place-items-center bg-slate-950 px-5"><section className="w-full max-w-md rounded-2xl bg-white p-7 shadow-2xl"><span className="grid size-10 place-items-center rounded-xl bg-slate-950 text-xs font-black text-white">TK</span><p className="mt-7 text-[11px] font-bold uppercase tracking-[.18em] text-indigo-600">Super Admin portal</p><h1 className="mt-2 text-2xl font-black tracking-tight">Use the admin portal</h1><p className="mt-3 text-sm leading-6 text-slate-500">Super Admin access is isolated from store operations. Continue to the dedicated admin subdomain.</p><button className="mt-6 w-full rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-indigo-700" onClick={() => { window.location.href = adminOrigin() }}>Open admin portal</button></section></main>
 }
-function Login({ onLogin, onError, error }: { onLogin: (user: CurrentUser) => void; onError: (message: string) => void; error: string }) {
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [submitting, setSubmitting] = useState(false)
 
-  async function submit(event: FormEvent) {
-    event.preventDefault(); setSubmitting(true); onError('')
-    try { onLogin(await authApi.login(username, password)) }
-    catch (err) { onError(err instanceof Error ? err.message : 'Unable to sign in') }
-    finally { setSubmitting(false) }
-  }
+function AdminAccessDenied({ onSignOut }: { onSignOut: () => void }) {
+  return <main className="grid min-h-screen place-items-center bg-slate-950 px-5"><section className="w-full max-w-md rounded-2xl bg-white p-7 shadow-2xl"><span className="grid size-10 place-items-center rounded-xl bg-slate-950 text-xs font-black text-white">TK</span><p className="mt-7 text-[11px] font-bold uppercase tracking-[.18em] text-rose-600">Admin access required</p><h1 className="mt-2 text-2xl font-black tracking-tight">This portal is restricted.</h1><p className="mt-3 text-sm leading-6 text-slate-500">Your account is not assigned the Super Admin role. Sign out and use the store operations application instead.</p><button className="mt-6 w-full rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-indigo-700" onClick={onSignOut}>Sign out</button></section></main>
+}
 
-  return <main className="auth-shell"><form className="login-card" onSubmit={submit}>
-    <span className="eyebrow">TindaKart PWA</span><h1>Welcome back</h1>
-    <p className="subtitle">Sign in to manage your store.</p>
-    <label>Username<input value={username} onChange={event => setUsername(event.target.value)} autoComplete="username" required /></label>
-    <label>Password<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required /></label>
-    {error && <p className="error-message">{error}</p>}
-    <button className="primary-button" disabled={submitting}>{submitting ? 'Signing in…' : 'Sign in'}</button>
-  </form></main>
+function SuperAdminPortal({ user, onSignOut }: { user: CurrentUser; onSignOut: () => void }) {
+  const [view, setView] = useState<AdminView>('overview')
+  const [vendors, setVendors] = useState(user.vendors)
+  useEffect(() => { tenantApi.vendors().then(setVendors).catch(() => setVendors(user.vendors)) }, [user.vendors])
+  return <AdminShell view={view} onViewChange={setView} onSignOut={onSignOut} username={user.username}>{view === 'overview' && <AdminOverviewPage user={user} vendors={vendors} onViewChange={setView} />}{view === 'vendors' && <VendorManagementPage initialVendors={vendors} />}{view === 'plans' && <PlansPricingPage />}{view === 'billing' && <BillingActivityPage vendors={vendors} />}{view === 'audit' && <AuditLogPage />}{view === 'settings' && <AdminSettingsPage />}</AdminShell>
+}
+
+function VendorPortal({ user, onSignOut }: { user: CurrentUser; onSignOut: () => void }) {
+  const [view, setView] = useState<VendorView>('overview')
+  const [vendorId, setVendorId] = useState<number | undefined>(user.vendors[0]?.id)
+  const [storeId, setStoreId] = useState<number | undefined>(user.stores[0]?.id)
+  const isAdmin = user.roles.some(role => role === 'VENDOR_ADMIN' || role === 'ROLE_VENDOR_ADMIN')
+  useEffect(() => { authApi.context().then(context => { setVendorId(context.vendorId ?? user.vendors[0]?.id); setStoreId(context.storeId ?? user.stores[0]?.id) }).catch(() => undefined) }, [user.vendors, user.stores])
+  function changeVendor(nextVendorId: number) { setVendorId(nextVendorId); const nextStore = user.stores.find(store => store.vendorId === nextVendorId); setStoreId(nextStore?.id); if (nextStore) authApi.setContext(nextVendorId, nextStore.id).catch(() => undefined) }
+  function changeStore(nextStoreId: number) { setStoreId(nextStoreId || undefined); if (nextStoreId && vendorId) authApi.setContext(vendorId, nextStoreId).catch(() => undefined) }
+  const vendor = user.vendors.find(item => item.id === vendorId)
+  return <VendorShell view={view} onViewChange={setView} onSignOut={onSignOut} username={user.username} vendors={user.vendors} stores={user.stores} vendorId={vendorId} storeId={storeId} onVendorChange={changeVendor} onStoreChange={changeStore} isAdmin={isAdmin}>{view === 'overview' ? <VendorOverviewPage vendor={vendor} storeId={storeId} onViewChange={setView} /> : <VendorModulePage view={view} vendor={vendor} storeId={storeId} stores={user.stores} />}</VendorShell>
+}
+
+function Workspace({ user, onSignOut }: { user: CurrentUser; onSignOut: () => void }) {
+  return <main className="min-h-screen bg-slate-100"><header className="border-b border-slate-200 bg-white"><div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 lg:px-8"><div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-xl bg-slate-950 text-xs font-black text-white">TK</span><div><strong className="block text-sm">TindaKart</strong><span className="block text-xs text-slate-500">New workspace foundation</span></div></div><button className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-950" onClick={onSignOut}>Sign out</button></div></header><section className="mx-auto max-w-7xl px-5 py-16 lg:px-8"><p className="text-xs font-bold uppercase tracking-[.16em] text-indigo-600">{user.roles.join(' · ')}</p><h1 className="mt-3 text-4xl font-black tracking-[-.06em] text-slate-950">Welcome, {user.username}.</h1><p className="mt-3 max-w-xl text-slate-600">The frontend has been restarted on a new component foundation. POS, inventory, and administration modules will be rebuilt into this workspace one by one.</p><div className="mt-8 grid gap-4 sm:grid-cols-3"><div className="rounded-2xl border border-slate-200 bg-white p-5"><strong className="block text-sm">Vendor access</strong><span className="mt-2 block text-2xl font-black">{user.vendors?.length ?? 0}</span></div><div className="rounded-2xl border border-slate-200 bg-white p-5"><strong className="block text-sm">Stores</strong><span className="mt-2 block text-2xl font-black">{user.stores?.length ?? 0}</span></div><div className="rounded-2xl border border-slate-200 bg-white p-5"><strong className="block text-sm">Next</strong><span className="mt-2 block text-sm font-semibold text-indigo-600">POS module rebuild</span></div></div></section></main>
 }
 
 createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>)

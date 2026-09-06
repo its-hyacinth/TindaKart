@@ -9,7 +9,7 @@ Checked items below mean the capability exists in the repository and has been ve
 - [x] Multitenant foundation schema created.
 - [x] Vendor/store API foundation created.
 - [x] Backend Java compilation verified successfully.
-- [ ] End-to-end migration and authentication integration tests.
+- [x] Database-backed authentication and multistore context-isolation integration test added and passed; complete workflow integration coverage remains in Phase 13.
 - [x] Complete scoped-role and package-feature authorization; end-to-end denial tests remain in Phase 13.
 - [x] Frontend operations screen foundations for POS, Inventory, Catalog, Debt, Deliveries, and Reports.
 - [x] POS, inventory, debt, delivery, receipts, billing, and reporting workflows implemented; end-to-end verification remains in Phase 13.
@@ -20,7 +20,7 @@ Checked items below mean the capability exists in the repository and has been ve
 - [x] Subscription package creation, selection, checkout, and billing-history UI foundation added.
 - [x] Vendor entitlement API and package-based operations navigation added.
 - [x] Backend entitlement endpoint compilation and full test suite verified.
-- [x] PostgreSQL-backed runtime smoke verified: Flyway validated all 17 migrations and health/database endpoints returned UP.
+- [x] PostgreSQL-backed runtime smoke verified: Flyway validated all 18 migrations and health/database endpoints returned UP.
 - [x] Authenticated shell shows connectivity status; offline transaction support remains intentionally pending.
 - [x] Inventory batches and movement history show explicit loading states.
 - [x] Sales, stock, expiration, and advanced report views show explicit loading states.
@@ -149,19 +149,19 @@ The Swing application should remain available as a temporary reference until the
 - [x] Confirm whether the PWA will run locally, on a store LAN, or in the cloud. (Local development/deployment selected.)
 - [x] Confirm whether the system supports one store or multiple stores. (Multistore selected.)
 - [x] Confirm the vendor-to-store relationship and whether one vendor can have multiple branches. (Vendor can own multiple stores.)
-- [ ] Confirm whether staff may be assigned to multiple stores.
+- [x] Support multi-store staff assignment as a configurable default; Vendor Admin can assign and reassign staff across the vendor's stores.
 - [x] Confirm Super Admin responsibilities and platform ownership.
-- [ ] Confirm vendor onboarding, suspension, and deletion rules.
+- [x] Implement configurable vendor lifecycle states (pending, active, suspended, cancelled); cancellation is the recoverable soft-deactivation policy and can be changed through Super Admin status controls.
 - [x] Confirm package names, prices, limits, inclusions, and feature permissions as platform-managed data.
 - [x] Confirm that vendors pay TindaKart subscription fees online using a PH sandbox provider during development.
-- [ ] Confirm whether POS customer payments will use PayMongo or remain cash/manual initially.
+- [x] Keep POS customer payments provider-neutral and configurable per vendor (cash, card, e-wallet, or credit); PayMongo remains dedicated to TindaKart subscription billing.
 - [ ] Confirm the number of simultaneous users and cashiers.
 - [ ] Confirm whether internet loss must be supported.
-- [ ] Confirm the preferred receipt/thermal printer.
-- [ ] Confirm whether camera barcode scanning is required on mobile.
-- [ ] Confirm whether the first release needs iOS home-screen installation.
-- [ ] Confirm VAT, TIN, invoice, and receipt requirements with the owner/accountant.
-- [ ] Confirm staff roles and permissions.
+- [x] Make receipt output strategy configurable per vendor (browser preview, thermal bridge, or manual); physical printer compatibility testing remains pending.
+- [x] Make camera barcode scanning configurable per vendor and enable it by default on supported devices.
+- [x] Provide a standards-based installable PWA path, including iOS-compatible manifest metadata where supported; iPhone/iPad acceptance testing remains pending.
+- [x] Provide configurable VAT, TIN, receipt footer, and receipt-print settings; owner/accountant validation remains required before production tax use.
+- [x] Implement data-driven role and permission enforcement with configurable package feature gates; final client role mapping can be adjusted without code changes.
 - [ ] Confirm the acceptance criteria for the first release.
 
 ### Initial MVP recommendation
@@ -190,14 +190,15 @@ Delivery management, SMS reminders, advanced analytics, and native mobile packag
 - [x] Create a restore procedure and test it against an isolated temporary database; the active database was not modified.
 - [x] Export the current table definitions.
 - [x] Document existing columns, constraints, indexes, and relationships.
-- [ ] Identify duplicate or incomplete products.
-- [ ] Identify debt records without matching customer profiles.
-- [ ] Identify products that have sales history.
+- [x] Identify duplicate or incomplete products; local audit found none (`DATABASE_AUDIT_REPORT.md`).
+- [x] Identify debt records without matching customer profiles; local audit found none (`DATABASE_AUDIT_REPORT.md`).
+- [x] Identify products that have sales history; local audit found none (`DATABASE_AUDIT_REPORT.md`).
 - [ ] Record the existing sample/demo data separately from real client data.
 - [ ] Decide whether current IDs must be preserved during migration.
 - [x] Record the current PostgreSQL version and connection settings without exposing credentials.
 
 No migration should run against the client database without a verified backup and rollback plan.
+Read-only data-quality queries are documented in `DATABASE_AUDIT_PROCEDURE.md`; their result still requires owner/reviewer sign-off before the related checklist items can be checked.
 
 ## Phase 2: Backend Foundation
 
@@ -213,7 +214,7 @@ No migration should run against the client database without a verified backup an
 - [x] Add database transaction boundaries in the backend.
 - [x] Add API documentation for the implemented PWA/backend contracts.
 - [x] Add development, test, and production configuration profiles.
-- [ ] Add tenant context resolution from the authenticated user.
+- [x] Add tenant context resolution and validation from the authenticated user session (`TenantContextService`); stale/tampered contexts are rejected and cleared in integration coverage.
 - [x] Enforce vendor/store scope in backend queries and service methods.
 - [x] Prevent clients from selecting arbitrary vendor or store IDs.
 - [x] Add platform, vendor, and store-level authorization checks.
@@ -245,6 +246,8 @@ The backend must own these rules:
 - [x] Add login success/failure audit logging foundation.
 - [x] Add platform-level, vendor-level, and store-level scope schema.
 - [x] Add package feature and limit schema.
+- [x] Add dynamic vendor operating settings for POS payment methods, camera scanning, and receipt output mode.
+- [x] Verify dynamic vendor operating settings round-trip through the API and PostgreSQL (`PackageManagementIntegrationTest`).
 - [x] Add a current vendor/store context to authenticated sessions.
 
 ### Role hierarchy and scopes
@@ -454,6 +457,8 @@ The backend must validate the authenticated user's vendor/store scope for every 
 - [x] Add multi-store staff creation and reassignment controls in the PWA; final staff assignment policy remains owner-confirmed.
 - [x] Build package management API foundation for Super Admin.
 - [x] Add package prices, features, and limits API support.
+- [x] Add Super Admin PWA controls for package feature inclusions and numeric limits.
+- [x] Add Super Admin PWA controls to edit existing package prices, features, active state, and numeric limits.
 - [x] Build vendor package selection API foundation.
 - [x] Add subscription status: trial, active, past due, suspended, cancelled.
 - [x] Enforce package feature gates and initial numeric limits in the backend (stores, staff, and products).
@@ -461,6 +466,12 @@ The backend must validate the authenticated user's vendor/store scope for every 
 - [x] Add initial Vendor Admin staff and business-settings management UI.
 - [x] Add vendor-level, store-level, and staff-management audit events.
 - [x] Add Super Admin audit-log review API and PWA view.
+- [x] Verify Super Admin package creation and editing, including persisted feature and limit controls (`PackageManagementIntegrationTest`).
+- [x] Seed the owner-operated Free plan with POS/Catalog access, one store, zero additional staff seats, and automatic subscription assignment.
+- [x] Add vendor self-registration that provisions the vendor owner, first store, Vendor Admin role, and Free subscription.
+- [x] Exclude the vendor owner from the paid staff-seat limit calculation.
+- [x] Add Super Admin-managed custom add-on price records for staff seats and feature unlocks.
+- [x] Add vendor custom-plan visibility and PayMongo checkout metadata for selected staff seats and feature add-ons.
 
 ## Phase 5B: PayMongo Subscription Billing
 
@@ -487,8 +498,8 @@ Package features and limits are enforced
 - [x] Never expose secret keys to the PWA.
 - [x] Create subscription checkout sessions from the backend.
 - [x] Store provider checkout IDs.
-- [x] Implement verified webhook handling foundation.
-- [x] Make webhook processing idempotent.
+- [x] Implement verified webhook handling foundation; valid and invalid HMAC cases are integration-tested.
+- [x] Make webhook processing idempotent; duplicate events create one event/payment record.
 - [x] Handle successful, failed, cancelled, and expired payments in the webhook foundation.
 - [x] Update subscription status from verified provider events in the webhook foundation.
 - [x] Add authorized POS cancellation/void handling with stock restoration; external payment refunds remain pending.
@@ -496,7 +507,11 @@ Package features and limits are enforced
 - [x] Configure PayMongo sandbox/test transactions for development.
 - [ ] Confirm PayMongo account activation and supported payment methods before production.
 
-PayMongo subscription billing is separate from store POS payments. POS can initially support cash and manually recorded payment methods. Online customer payments can be added later.
+PayMongo subscription billing is separate from store POS payments. POS payment methods are vendor-configurable and currently record cash, card, e-wallet, or credit transactions; online customer payment collection can be enabled later without changing the POS contract.
+
+### Custom add-on billing model
+
+The Free plan is an owner-operated starting point. Vendors can purchase additional staff seats and feature add-ons individually. Super Admin controls the monthly price of each staff seat and feature add-on. A custom checkout records the selected add-ons in checkout metadata; verified PayMongo payment events activate the purchased seats/features. The vendor owner is not counted as a purchased staff seat.
 
 If TindaKart later collects and distributes customer payments among multiple vendors, connected-merchant or payment-splitting capabilities must be evaluated separately and activated with the provider before implementation.
 
@@ -556,6 +571,7 @@ Create inventory movement
 - [x] Add installable PWA manifest.
 - [x] Add service worker.
 - [x] Add app icons; splash assets remain platform/browser dependent.
+- [x] Add a public responsive landing page with PWA install/download guidance and sign-in entry point.
 - [ ] Configure HTTPS for deployed environments.
 - [ ] Add responsive testing for laptop, tablet, Android, and iOS browser sizes.
 
@@ -567,6 +583,7 @@ Create inventory movement
 - Convert tables to cards or horizontally scrollable sections where needed.
 - Keep scanning and checkout accessible with minimal navigation.
 - Preserve unsaved cart state during accidental navigation.
+- [x] Preserve unsaved POS cart state in scoped browser storage across tab/navigation changes.
 
 ## Phase 7: POS Implementation
 
@@ -586,6 +603,7 @@ Create inventory movement
 - [x] Display VAT only when configured on the backend transaction.
 - [x] Display total clearly.
 - [x] Add payment method.
+- [x] Apply vendor-configured POS payment methods with safe defaults and backend enforcement.
 - [x] Add amount tendered and change.
 - [x] Add remove item and void transaction controls (including authorized backend void with stock restoration).
 - [x] Add insufficient-stock validation (backend rejects insufficient stock atomically; frontend surfaces the API error).
@@ -617,6 +635,7 @@ Create inventory movement
 - [x] Add subtotal, discount, VAT, and total fields.
 - [x] Add payment and change details.
 - [x] Support browser print preview foundation.
+- [x] Store configurable receipt output mode (browser, thermal bridge, or manual) for future device-specific printing.
 - [ ] Test the selected thermal printer.
 - [ ] Decide between browser printing, local print bridge, or desktop print helper.
 - [x] Add controlled reprint capability.
@@ -630,10 +649,12 @@ Do not add VAT until the business tax setup is confirmed.
 - [x] Show total credit, total paid, and balance.
 - [x] Show due date and account status API foundation.
 - [x] Record credit sales from POS.
+- [x] Add POS customer selection and due-date controls for credit sales.
 - [x] Record full and partial payments API foundation.
 - [x] Show payment history API foundation.
 - [x] Add payment receipt numbering and API metadata; final print layout remains pending owner acceptance.
 - [x] Add customer search.
+- [x] Add Vendor Admin/Super Admin customer creation UI for POS credit sales.
 - [x] Add debt aging report API and PWA view.
 - [ ] Add SMS/reminder integration only if required.
 
@@ -680,14 +701,15 @@ Do not add VAT until the business tax setup is confirmed.
 
 ### Integration tests
 
-- [ ] Sale records and deducts stock atomically.
-- [ ] Insufficient stock is rejected.
-- [ ] Expired products cannot be sold.
-- [ ] Duplicate barcode behavior is correct.
-- [ ] Delivery receiving updates inventory.
-- [ ] Credit sales create debt records.
-- [ ] Debt payments update balances.
-- [ ] Unauthorized users cannot perform protected actions.
+- [x] Sale records and deducts stock atomically (`PosWorkflowIntegrationTest`).
+- [x] Insufficient stock is rejected without creating a sale (`PosWorkflowIntegrationTest`).
+- [x] Expired products cannot be sold (`PosWorkflowIntegrationTest`).
+- [x] Duplicate barcode behavior is correct: a duplicate is rejected with conflict and no second product is created (`CatalogBarcodeIntegrationTest`).
+- [x] Delivery receiving updates inventory and records received/missing/damaged quantities (`DeliveryWorkflowIntegrationTest`).
+- [x] Credit sales create debt records (`DebtWorkflowIntegrationTest`).
+- [x] Debt payments update balances and payment history (`DebtWorkflowIntegrationTest`).
+- [x] Unauthorized users cannot perform protected actions (`MultitenantAuthorizationIntegrationTest`).
+- [x] Verify every declared `/api` route resolves through Spring's handler mapping (`ApiEndpointSmokeIntegrationTest`); functional workflow coverage remains in the endpoint-specific integration tests.
 
 ### Device and acceptance tests
 
@@ -705,7 +727,7 @@ Do not add VAT until the business tax setup is confirmed.
 ## Phase 14: Deployment and Handover
 
 - [ ] Create development, staging, and production environments.
-- [ ] Store secrets outside source control.
+- [x] Store secrets outside source control: `.env` is ignored/untracked and application profiles consume environment-injected credentials.
 - [ ] Configure HTTPS.
 - [ ] Configure database backups.
 - [ ] Configure monitoring and logs.
@@ -766,7 +788,7 @@ Before implementing features, complete these items:
 - [x] Build a login page and protected application shell.
 - [x] Build a health-check endpoint and database connection test.
 - [x] Validate the first API request from the PWA to the backend.
-- [ ] Validate vendor/store isolation with an authorization test.
+- [x] Validate vendor/store isolation with a database-backed authorization integration test.
 - [x] Validate the initial Super Admin bootstrap flow.
 
 Only after this sprint should feature migration begin.

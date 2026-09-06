@@ -6,6 +6,7 @@ build/
 app/build/
 **/build/
 .gradle-user-home/
+.gradle-user/
 .gradle-home/
 
 # PWA frontend generated files

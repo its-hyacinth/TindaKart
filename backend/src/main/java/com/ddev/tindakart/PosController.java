@@ -19,6 +19,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -42,14 +43,23 @@ public class PosController {
         this.permissionAccessService = permissionAccessService;
     }
 
+    @GetMapping("/customers")
+    public List<CustomerOption> customers(@PathVariable Long vendorId, @PathVariable Long storeId,
+                                          Authentication authentication) {
+        requirePosAccess(vendorId, storeId, authentication);
+        packageAccessService.requireFeature(authentication, vendorId, "POS");
+        return jdbcTemplate.query("SELECT id, name, phone FROM customer_profiles WHERE vendor_id = ? ORDER BY name, id",
+                (rs, rowNum) -> new CustomerOption(rs.getLong("id"), rs.getString("name"), rs.getString("phone")), vendorId);
+    }
+
     @PostMapping
     @Transactional
     public SaleView completeSale(@PathVariable Long vendorId, @PathVariable Long storeId, @Valid @RequestBody SaleRequest request,
                                  Authentication authentication) {
         requirePosAccess(vendorId, storeId, authentication);
         packageAccessService.requireFeature(authentication, vendorId, "POS");
-        if (!List.of("CASH", "CARD", "EWALLET", "CREDIT").contains(request.paymentMethod())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid payment method");
+        if (!salePaymentMethods(vendorId).contains(request.paymentMethod())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Payment method is not enabled for this vendor");
         }
         boolean creditSale = request.paymentMethod().equals("CREDIT");
         if (creditSale && (request.customerId() == null || request.dueDate() == null)) {
@@ -184,6 +194,15 @@ public class PosController {
                         rs.getInt("near_expiration_days"), rs.getBigDecimal("near_expiration_discount_percent")), vendorId)
                 .stream().findFirst().orElse(new SalePricingSettings(false, BigDecimal.ZERO, 30, BigDecimal.ZERO));
     }
+    private List<String> salePaymentMethods(Long vendorId) {
+        return jdbcTemplate.query("SELECT pos_payment_methods FROM business_settings WHERE vendor_id = ?",
+                        (rs, rowNum) -> {
+                            java.sql.Array array = rs.getArray("pos_payment_methods");
+                            if (array == null || array.getArray() == null) return List.<String>of();
+                            return java.util.Arrays.stream((Object[]) array.getArray()).map(String::valueOf).toList();
+                        }, vendorId)
+                .stream().findFirst().orElse(List.of("CASH", "CARD", "EWALLET", "CREDIT"));
+    }
     private ResponseStatusException notFound(String message) { return new ResponseStatusException(HttpStatus.NOT_FOUND, message); }
 
     private record ProductPricing(Long id, BigDecimal retailPrice, BigDecimal bulkPrice, Integer bulkThreshold) { }
@@ -198,6 +217,7 @@ public class PosController {
     public record SaleView(Long id, String receiptNumber, BigDecimal subtotal, BigDecimal discountAmount,
                            BigDecimal vatAmount, BigDecimal totalAmount, String paymentMethod,
                            BigDecimal amountTendered, BigDecimal changeAmount) { }
+    public record CustomerOption(Long id, String name, String phone) { }
     public record SaleRequest(@NotEmpty List<@Valid SaleLineRequest> items,
                               @NotBlank String paymentMethod, @DecimalMin("0.00") BigDecimal discountAmount,
                               @DecimalMin("0.00") BigDecimal amountTendered, Long customerId, LocalDate dueDate) {

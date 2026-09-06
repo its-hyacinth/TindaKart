@@ -36,7 +36,15 @@ npm install
 npm run dev
 ```
 
-The PWA runs at `http://localhost:5173` and proxies `/api` requests to the backend.
+The store PWA runs at `http://localhost:5173` and proxies `/api` requests to the backend.
+
+The Super Admin portal is isolated on the admin subdomain:
+
+```text
+http://admin.localhost:5173
+```
+
+For production, point `admin.example.com` to the same frontend deployment as `example.com`. The frontend routes Super Admin users to the portal only when they are on the `admin.` hostname.
 
 ## Migrations
 
