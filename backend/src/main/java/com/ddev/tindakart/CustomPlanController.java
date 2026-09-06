@@ -46,13 +46,13 @@ public class CustomPlanController {
         return listPrices().stream().filter(item -> item.featureKey().equals(featureKey.trim().toUpperCase())).findFirst().orElseThrow();
     }
 
-    @GetMapping("/vendors/{vendorId}/custom-plan")
-    public CustomPlan plan(@PathVariable Long vendorId, Authentication authentication) {
-        requireVendorAccess(authentication, vendorId);
-        Integer seats = jdbcTemplate.query("SELECT seat_count FROM vendor_staff_seats WHERE vendor_id = ?",
-                (rs, rowNum) -> rs.getInt("seat_count"), vendorId).stream().findFirst().orElse(0);
-        List<String> features = jdbcTemplate.query("SELECT feature_key FROM vendor_feature_addons WHERE vendor_id = ? AND active = TRUE ORDER BY feature_key",
-                (rs, rowNum) -> rs.getString("feature_key"), vendorId);
+    @GetMapping("/stores/{storeId}/custom-plan")
+    public CustomPlan plan(@PathVariable Long storeId, Authentication authentication) {
+        requireStoreAccess(authentication, storeId);
+        Integer seats = jdbcTemplate.query("SELECT seat_count FROM store_staff_seats WHERE store_id = ?",
+                (rs, rowNum) -> rs.getInt("seat_count"), storeId).stream().findFirst().orElse(0);
+        List<String> features = jdbcTemplate.query("SELECT feature_key FROM store_feature_addons WHERE store_id = ? AND active = TRUE ORDER BY feature_key",
+                (rs, rowNum) -> rs.getString("feature_key"), storeId);
         return new CustomPlan(seats, features, listPrices());
     }
 
@@ -67,10 +67,10 @@ public class CustomPlanController {
         }
     }
 
-    private void requireVendorAccess(Authentication authentication, Long vendorId) {
+    private void requireStoreAccess(Authentication authentication, Long storeId) {
         if (!authentication.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN"))
-                && tenantAccessService.vendorsFor(authentication).stream().noneMatch(v -> v.id().equals(vendorId))) {
-            throw new AccessDeniedException("Vendor access is required");
+                && tenantAccessService.storesFor(authentication).stream().noneMatch(v -> v.id().equals(storeId))) {
+            throw new AccessDeniedException("Store access is required");
         }
     }
 

@@ -18,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -73,13 +75,18 @@ public class CatalogController {
         requireVendorAccess(authentication, vendorId);
         packageAccessService.requireFeature(authentication, vendorId, "CATALOG");
         String normalizedSearch = search == null ? "" : search.trim();
-        return jdbcTemplate.query("SELECT p.id, p.vendor_id, p.category_id, c.name AS category_name, p.name, p.sku, "
-                        + "p.unit_type, p.cost_price, p.retail_price, p.bulk_price, p.bulk_threshold, p.reorder_level, "
-                        + "p.expiration_applicable, p.active FROM products p LEFT JOIN categories c ON c.id = p.category_id "
-                        + "WHERE p.vendor_id = ? AND (? IS NULL OR p.category_id = ?) "
-                        + "AND (? = '' OR LOWER(p.name) LIKE LOWER(?) OR LOWER(p.sku) LIKE LOWER(?)) "
-                        + "ORDER BY LOWER(p.name), p.id", (rs, rowNum) -> product(rs, barcodes(rs.getLong("id"))),
-                vendorId, categoryId, categoryId, normalizedSearch, "%" + normalizedSearch + "%", "%" + normalizedSearch + "%");
+        String select = "SELECT p.id, p.vendor_id, p.category_id, c.name AS category_name, p.name, p.sku, "
+                + "p.unit_type, p.cost_price, p.retail_price, p.bulk_price, p.bulk_threshold, p.reorder_level, "
+                + "p.expiration_applicable, p.active FROM products p LEFT JOIN categories c ON c.id = p.category_id ";
+        String searchClause = "AND (? = '' OR LOWER(p.name) LIKE LOWER(?) OR LOWER(p.sku) LIKE LOWER(?)) "
+                + "ORDER BY LOWER(p.name), p.id";
+        var mapper = (org.springframework.jdbc.core.RowMapper<ProductView>) (rs, rowNum) -> product(rs, barcodes(rs.getLong("id")));
+        if (categoryId == null) {
+            return jdbcTemplate.query(select + "WHERE p.vendor_id = ? " + searchClause, mapper,
+                    vendorId, normalizedSearch, "%" + normalizedSearch + "%", "%" + normalizedSearch + "%");
+        }
+        return jdbcTemplate.query(select + "WHERE p.vendor_id = ? AND p.category_id = ? " + searchClause, mapper,
+                vendorId, categoryId, normalizedSearch, "%" + normalizedSearch + "%", "%" + normalizedSearch + "%");
     }
 
     @GetMapping("/products/barcode/{barcode}")
@@ -93,6 +100,14 @@ public class CatalogController {
                         + "LEFT JOIN categories c ON c.id = p.category_id WHERE p.vendor_id = ? AND pb.barcode = ?",
                 (rs, rowNum) -> product(rs, barcodes(rs.getLong("id"))), vendorId, barcode.trim())
                 .stream().findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Product not found"));
+    }
+
+    @GetMapping("/products/count")
+    public long countProducts(@PathVariable Long vendorId, Authentication authentication) {
+        requireVendorAccess(authentication, vendorId);
+        packageAccessService.requireFeature(authentication, vendorId, "CATALOG");
+        Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM products WHERE vendor_id = ?", Long.class, vendorId);
+        return count == null ? 0 : count;
     }
 
     @PostMapping("/products")
@@ -121,6 +136,34 @@ public class CatalogController {
             return ResponseEntity.status(HttpStatus.CREATED).body(findProduct(vendorId, id));
         } catch (DataIntegrityViolationException ex) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "SKU or barcode already exists");
+        }
+    }
+
+    @PutMapping("/products/{productId}")
+    @Transactional
+    public ProductView updateProduct(@PathVariable Long vendorId, @PathVariable Long productId,
+                                     @Valid @RequestBody ProductRequest request, Authentication authentication) {
+        requireVendorAdmin(authentication, vendorId);
+        packageAccessService.requireFeature(authentication, vendorId, "CATALOG");
+        validateProduct(request);
+        validateCategory(vendorId, request.categoryId());
+        if (jdbcTemplate.update("UPDATE products SET category_id = ?, name = ?, sku = ?, unit_type = ?, cost_price = ?, retail_price = ?, bulk_price = ?, bulk_threshold = ?, reorder_level = ?, expiration_applicable = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND vendor_id = ?",
+                request.categoryId(), request.name().trim(), request.sku().trim().toUpperCase(), request.unitType(), request.costPrice(), request.retailPrice(), request.bulkPrice(), request.bulkThreshold(), request.reorderLevel(), request.expirationApplicable(), productId, vendorId) == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Product not found");
+        }
+        jdbcTemplate.update("DELETE FROM product_barcodes WHERE product_id = ?", productId);
+        for (String barcode : request.barcodes()) {
+            jdbcTemplate.update("INSERT INTO product_barcodes (product_id, barcode, is_primary) VALUES (?, ?, ?)", productId, barcode.trim(), barcode.equals(request.barcodes().getFirst()));
+        }
+        return findProduct(vendorId, productId);
+    }
+
+    @DeleteMapping("/products/{productId}")
+    public void deactivateProduct(@PathVariable Long vendorId, @PathVariable Long productId, Authentication authentication) {
+        requireVendorAdmin(authentication, vendorId);
+        packageAccessService.requireFeature(authentication, vendorId, "CATALOG");
+        if (jdbcTemplate.update("UPDATE products SET active = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND vendor_id = ?", productId, vendorId) == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Product not found");
         }
     }
 
@@ -175,7 +218,7 @@ public class CatalogController {
 
     private void requireVendorAccess(Authentication authentication, Long vendorId) {
         if (authentication.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN"))) return;
-        if (tenantAccessService.vendorsFor(authentication).stream().noneMatch(vendor -> vendor.id().equals(vendorId))) {
+        if (!tenantAccessService.hasStoreAccess(authentication, vendorId)) {
             throw new AccessDeniedException("You do not have access to this vendor");
         }
     }

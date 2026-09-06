@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/vendors/{vendorId}/entitlements")
+@RequestMapping("/api/stores/{storeId}/entitlements")
 public class EntitlementController {
     private final JdbcTemplate jdbcTemplate;
     private final TenantAccessService tenantAccessService;
@@ -22,21 +22,20 @@ public class EntitlementController {
     }
 
     @GetMapping
-    public Entitlements get(@PathVariable Long vendorId, Authentication authentication) {
-        if (!authentication.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN"))
-                && tenantAccessService.vendorsFor(authentication).stream().noneMatch(v -> v.id().equals(vendorId))) {
-            throw new AccessDeniedException("Vendor access is required");
+    public Entitlements get(@PathVariable Long storeId, Authentication authentication) {
+        if (!tenantAccessService.hasStoreAccess(authentication, storeId)) {
+            throw new AccessDeniedException("Store access is required");
         }
         Map<String, Boolean> features = new LinkedHashMap<>();
-        jdbcTemplate.query("SELECT pf.feature_key, pf.enabled FROM vendor_subscriptions vs JOIN package_features pf ON pf.package_id = vs.package_id WHERE vs.vendor_id = ? AND vs.status IN ('TRIAL', 'ACTIVE')",
-                (org.springframework.jdbc.core.RowCallbackHandler) rs -> features.put(rs.getString("feature_key"), rs.getBoolean("enabled")), vendorId);
-        jdbcTemplate.query("SELECT feature_key FROM vendor_feature_addons WHERE vendor_id = ? AND active = TRUE",
-                (org.springframework.jdbc.core.RowCallbackHandler) rs -> features.put(rs.getString("feature_key"), true), vendorId);
+        jdbcTemplate.query("SELECT pf.feature_key, pf.enabled FROM store_subscriptions ss JOIN package_features pf ON pf.package_id = ss.package_id WHERE ss.store_id = ? AND ss.status IN ('TRIAL', 'ACTIVE')",
+                (org.springframework.jdbc.core.RowCallbackHandler) rs -> features.put(rs.getString("feature_key"), rs.getBoolean("enabled")), storeId);
+        jdbcTemplate.query("SELECT feature_key FROM store_feature_addons WHERE store_id = ? AND active = TRUE",
+                (org.springframework.jdbc.core.RowCallbackHandler) rs -> features.put(rs.getString("feature_key"), true), storeId);
         Map<String, Integer> limits = new LinkedHashMap<>();
-        jdbcTemplate.query("SELECT pl.limit_key, pl.limit_value FROM vendor_subscriptions vs JOIN package_limits pl ON pl.package_id = vs.package_id WHERE vs.vendor_id = ? AND vs.status IN ('TRIAL', 'ACTIVE')",
-                (org.springframework.jdbc.core.RowCallbackHandler) rs -> limits.put(rs.getString("limit_key"), rs.getInt("limit_value")), vendorId);
-        Integer seats = jdbcTemplate.query("SELECT seat_count FROM vendor_staff_seats WHERE vendor_id = ?",
-                (rs, rowNum) -> rs.getInt("seat_count"), vendorId).stream().findFirst().orElse(0);
+        jdbcTemplate.query("SELECT pl.limit_key, pl.limit_value FROM store_subscriptions ss JOIN package_limits pl ON pl.package_id = ss.package_id WHERE ss.store_id = ? AND ss.status IN ('TRIAL', 'ACTIVE')",
+                (org.springframework.jdbc.core.RowCallbackHandler) rs -> limits.put(rs.getString("limit_key"), rs.getInt("limit_value")), storeId);
+        Integer seats = jdbcTemplate.query("SELECT seat_count FROM store_staff_seats WHERE store_id = ?",
+                (rs, rowNum) -> rs.getInt("seat_count"), storeId).stream().findFirst().orElse(0);
         limits.computeIfPresent("MAX_STAFF", (key, value) -> value + seats);
         return new Entitlements(features, limits);
     }

@@ -9,9 +9,6 @@ app/build/
 .gradle-user/
 .gradle-home/
 
-# PWA frontend generated files
-frontend/node_modules/
-frontend/dist/
 
 # IDE
 .idea/
@@ -30,3 +27,6 @@ frontend/dist/
 # Local database backups may contain client data and must never be committed
 backups/
 
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/

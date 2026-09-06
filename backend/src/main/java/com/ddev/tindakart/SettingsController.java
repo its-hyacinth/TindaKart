@@ -88,8 +88,8 @@ public class SettingsController {
 
     private void requireAccess(Long vendorId, Authentication authentication, boolean write) {
         if (authentication.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN"))
-                || tenantAccessService.hasVendorRole(authentication, vendorId, "VENDOR_ADMIN")) return;
-        if (!write && tenantAccessService.vendorsFor(authentication).stream().anyMatch(v -> v.id().equals(vendorId))) return;
+                || tenantAccessService.hasStoreRole(authentication, vendorId, "STORE_ADMIN")) return;
+        if (!write && tenantAccessService.hasStoreAccess(authentication, vendorId)) return;
         throw new AccessDeniedException("Business settings access is required");
     }
 

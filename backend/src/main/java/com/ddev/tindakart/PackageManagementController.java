@@ -77,32 +77,32 @@ public class PackageManagementController {
         return findPackage(packageId);
     }
 
-    @GetMapping("/vendors/{vendorId}/packages")
-    public List<PackageView> availablePackages(@PathVariable Long vendorId, Authentication authentication) {
-        requireVendorAccess(authentication, vendorId);
+    @GetMapping("/stores/{storeId}/packages")
+    public List<PackageView> availablePackages(@PathVariable Long storeId, Authentication authentication) {
+        requireStoreAccess(authentication, storeId);
         return jdbcTemplate.query("SELECT id FROM packages WHERE active = TRUE ORDER BY monthly_price, name",
                 (rs, rowNum) -> findPackage(rs.getLong("id")));
     }
 
-    @GetMapping("/vendors/{vendorId}/subscription")
-    public SubscriptionView currentSubscription(@PathVariable Long vendorId, Authentication authentication) {
-        requireVendorAccess(authentication, vendorId);
-        return findSubscription(vendorId);
+    @GetMapping("/stores/{storeId}/subscription")
+    public SubscriptionView currentSubscription(@PathVariable Long storeId, Authentication authentication) {
+        requireStoreAccess(authentication, storeId);
+        return findSubscription(storeId);
     }
 
-    @PutMapping("/vendors/{vendorId}/subscription")
+    @PutMapping("/stores/{storeId}/subscription")
     @Transactional
-    public SubscriptionView selectPackage(@PathVariable Long vendorId,
+    public SubscriptionView selectPackage(@PathVariable Long storeId,
                                           @Valid @RequestBody SelectPackageRequest request,
                                           Authentication authentication) {
-        requireVendorAdmin(authentication, vendorId);
+        requireStoreAdmin(authentication, storeId);
         Integer active = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM packages WHERE id = ? AND active = TRUE",
                 Integer.class, request.packageId());
         if (active == null || active == 0) throw notFound("Active package not found");
-        jdbcTemplate.update("UPDATE vendor_subscriptions SET status = 'CANCELLED', ends_at = CURRENT_TIMESTAMP "
-                + "WHERE vendor_id = ? AND status IN ('TRIAL', 'ACTIVE', 'PAST_DUE', 'SUSPENDED')", vendorId);
-        Long id = jdbcTemplate.queryForObject("INSERT INTO vendor_subscriptions (vendor_id, package_id, status) "
-                + "VALUES (?, ?, 'TRIAL') RETURNING id", Long.class, vendorId, request.packageId());
+        jdbcTemplate.update("UPDATE store_subscriptions SET status = 'CANCELLED', ends_at = CURRENT_TIMESTAMP "
+                + "WHERE store_id = ? AND status IN ('TRIAL', 'ACTIVE', 'PAST_DUE', 'SUSPENDED')", storeId);
+        Long id = jdbcTemplate.queryForObject("INSERT INTO store_subscriptions (store_id, package_id, status) "
+                + "VALUES (?, ?, 'TRIAL') RETURNING id", Long.class, storeId, request.packageId());
         return findSubscriptionById(id);
     }
 
@@ -131,22 +131,22 @@ public class PackageManagementController {
         return result;
     }
 
-    private SubscriptionView findSubscription(Long vendorId) {
-        return jdbcTemplate.query("SELECT vs.id, vs.vendor_id, vs.package_id, p.name AS package_name, vs.status, "
-                        + "vs.starts_at, vs.ends_at FROM vendor_subscriptions vs JOIN packages p ON p.id = vs.package_id "
-                        + "WHERE vs.vendor_id = ? ORDER BY vs.created_at DESC LIMIT 1", (rs, rowNum) -> subscription(rs), vendorId)
+    private SubscriptionView findSubscription(Long storeId) {
+        return jdbcTemplate.query("SELECT vs.id, vs.store_id, vs.package_id, p.name AS package_name, vs.status, "
+                        + "vs.starts_at, vs.ends_at FROM store_subscriptions vs JOIN packages p ON p.id = vs.package_id "
+                        + "WHERE vs.store_id = ? ORDER BY vs.created_at DESC LIMIT 1", (rs, rowNum) -> subscription(rs), storeId)
                 .stream().findFirst().orElseThrow(() -> notFound("No subscription found"));
     }
 
     private SubscriptionView findSubscriptionById(Long id) {
-        return jdbcTemplate.query("SELECT vs.id, vs.vendor_id, vs.package_id, p.name AS package_name, vs.status, "
-                        + "vs.starts_at, vs.ends_at FROM vendor_subscriptions vs JOIN packages p ON p.id = vs.package_id "
+        return jdbcTemplate.query("SELECT vs.id, vs.store_id, vs.package_id, p.name AS package_name, vs.status, "
+                        + "vs.starts_at, vs.ends_at FROM store_subscriptions vs JOIN packages p ON p.id = vs.package_id "
                         + "WHERE vs.id = ?", (rs, rowNum) -> subscription(rs), id)
                 .stream().findFirst().orElseThrow(() -> notFound("Subscription not found"));
     }
 
     private SubscriptionView subscription(java.sql.ResultSet rs) throws java.sql.SQLException {
-        return new SubscriptionView(rs.getLong("id"), rs.getLong("vendor_id"), rs.getLong("package_id"),
+        return new SubscriptionView(rs.getLong("id"), rs.getLong("store_id"), rs.getLong("package_id"),
                 rs.getString("package_name"), rs.getString("status"), rs.getObject("starts_at", java.time.OffsetDateTime.class),
                 rs.getObject("ends_at", java.time.OffsetDateTime.class));
     }
@@ -155,16 +155,16 @@ public class PackageManagementController {
         if (!hasRole(authentication, "ROLE_SUPER_ADMIN")) throw new AccessDeniedException("Super Admin permission is required");
     }
 
-    private void requireVendorAdmin(Authentication authentication, Long vendorId) {
-        if (!tenantAccessService.hasVendorRole(authentication, vendorId, "VENDOR_ADMIN")) {
-            throw new AccessDeniedException("Vendor Admin permission is required");
+    private void requireStoreAdmin(Authentication authentication, Long storeId) {
+        if (!tenantAccessService.hasStoreRole(authentication, storeId, "STORE_ADMIN")) {
+            throw new AccessDeniedException("Store Admin permission is required");
         }
     }
 
-    private void requireVendorAccess(Authentication authentication, Long vendorId) {
+    private void requireStoreAccess(Authentication authentication, Long storeId) {
         if (hasRole(authentication, "ROLE_SUPER_ADMIN")) return;
-        boolean allowed = tenantAccessService.vendorsFor(authentication).stream().anyMatch(vendor -> vendor.id().equals(vendorId));
-        if (!allowed) throw new AccessDeniedException("You do not have access to this vendor");
+        boolean allowed = tenantAccessService.storesFor(authentication).stream().anyMatch(store -> store.id().equals(storeId));
+        if (!allowed) throw new AccessDeniedException("You do not have access to this store");
     }
 
     private boolean hasRole(Authentication authentication, String role) {
@@ -181,6 +181,6 @@ public class PackageManagementController {
                                  @NotNull @DecimalMin("0.00") BigDecimal annualPrice,
                                  boolean active, Map<String, Boolean> features, Map<String, Integer> limits) { }
     public record SelectPackageRequest(@NotNull Long packageId) { }
-    public record SubscriptionView(Long id, Long vendorId, Long packageId, String packageName, String status,
+    public record SubscriptionView(Long id, Long storeId, Long packageId, String packageName, String status,
                                    java.time.OffsetDateTime startsAt, java.time.OffsetDateTime endsAt) { }
 }

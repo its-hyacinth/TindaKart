@@ -137,7 +137,7 @@ public class DebtController {
     }
 
     private void requireVendorAdmin(Long vendorId, Authentication authentication) {
-        if (!hasRole(authentication, "ROLE_SUPER_ADMIN") && !tenantAccessService.hasVendorRole(authentication, vendorId, "VENDOR_ADMIN")) {
+        if (!hasRole(authentication, "ROLE_SUPER_ADMIN") && !tenantAccessService.hasStoreRole(authentication, vendorId, "STORE_ADMIN")) {
             throw new AccessDeniedException("Vendor Admin permission is required");
         }
     }

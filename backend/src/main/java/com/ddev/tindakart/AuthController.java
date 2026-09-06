@@ -72,9 +72,9 @@ public class AuthController {
         }
     }
 
-    @PostMapping("/register-vendor")
+    @PostMapping("/register-store")
     @Transactional
-    public ResponseEntity<?> registerVendor(@Valid @RequestBody VendorRegistrationRequest request) {
+    public ResponseEntity<?> registerStore(@Valid @RequestBody StoreRegistrationRequest request) {
         Long userId;
         try {
             userId = jdbcTemplate.queryForObject("INSERT INTO users (username, password_hash, display_name) VALUES (?, ?, ?) RETURNING id",
@@ -82,17 +82,15 @@ public class AuthController {
         } catch (org.springframework.dao.DuplicateKeyException ex) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Username already exists"));
         }
-        Long vendorId = jdbcTemplate.queryForObject("INSERT INTO vendors (name, status, owner_user_id) VALUES (?, 'ACTIVE', ?) RETURNING id",
-                Long.class, request.vendorName().trim(), userId);
-        Long storeId = jdbcTemplate.queryForObject("INSERT INTO stores (vendor_id, name, code) VALUES (?, ?, ?) RETURNING id",
-                Long.class, vendorId, request.storeName().trim(), request.storeCode().trim().toUpperCase());
-        jdbcTemplate.update("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name = 'VENDOR_ADMIN' ON CONFLICT DO NOTHING", userId);
-        jdbcTemplate.update("INSERT INTO vendor_user_roles (user_id, vendor_id, role_id) SELECT ?, ?, id FROM roles WHERE name = 'VENDOR_ADMIN'", userId, vendorId);
+        Long storeId = jdbcTemplate.queryForObject("INSERT INTO stores (name, code) VALUES (?, ?) RETURNING id",
+                Long.class, request.storeName().trim(), request.storeCode().trim().toUpperCase());
+        jdbcTemplate.update("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name = 'STORE_ADMIN' ON CONFLICT DO NOTHING", userId);
+        jdbcTemplate.update("INSERT INTO store_user_roles (user_id, store_id, role_id) SELECT ?, ?, id FROM roles WHERE name = 'STORE_ADMIN'", userId, storeId);
         Long freePackageId = jdbcTemplate.queryForObject("SELECT id FROM packages WHERE name = 'Free' AND active = TRUE", Long.class);
-        jdbcTemplate.update("INSERT INTO vendor_subscriptions (vendor_id, package_id, status) VALUES (?, ?, 'ACTIVE')", vendorId, freePackageId);
-        jdbcTemplate.update("INSERT INTO vendor_staff_seats (vendor_id, seat_count, monthly_unit_price) VALUES (?, 0, 0) ON CONFLICT (vendor_id) DO NOTHING", vendorId);
-        auditService.record(request.username().trim(), "VENDOR_REGISTERED", "VENDOR", vendorId.toString(), request.vendorName().trim());
-        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("username", request.username().trim(), "vendorId", vendorId, "storeId", storeId, "plan", "Free"));
+        jdbcTemplate.update("INSERT INTO store_subscriptions (store_id, package_id, status) VALUES (?, ?, 'ACTIVE')", storeId, freePackageId);
+        jdbcTemplate.update("INSERT INTO store_staff_seats (store_id, seat_count, monthly_unit_price) VALUES (?, 0, 0) ON CONFLICT (store_id) DO NOTHING", storeId);
+        auditService.record(request.username().trim(), "STORE_REGISTERED", "STORE", storeId.toString(), request.storeName().trim());
+        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("username", request.username().trim(), "storeId", storeId, "plan", "Free"));
     }
 
     private boolean isLocked(String username) {
@@ -125,7 +123,7 @@ public class AuthController {
     @PutMapping("/context")
     public ContextView setContext(@Valid @RequestBody ContextRequest context, Authentication authentication,
                                   HttpServletRequest request) {
-        return tenantContextService.set(request, authentication, context.vendorId(), context.storeId());
+        return tenantContextService.set(request, authentication, context.storeId());
     }
 
     @PostMapping("/logout")
@@ -159,19 +157,16 @@ public class AuthController {
     private Map<String, Object> userResponse(Authentication authentication) {
         return Map.of("username", authentication.getName(), "roles", authentication.getAuthorities().stream()
                 .map(authority -> authority.getAuthority().replaceFirst("^ROLE_", "")).toList(),
-                "vendors", tenantAccessService.vendorsFor(authentication),
                 "stores", tenantAccessService.storesFor(authentication));
     }
 
     public record LoginRequest(@NotBlank String username, @NotBlank String password) { }
-    public record VendorRegistrationRequest(@NotBlank @Size(max = 120) String username,
+    public record StoreRegistrationRequest(@NotBlank @Size(max = 120) String username,
                                             @NotBlank @Size(min = 8, max = 255) String password,
                                             @NotBlank @Size(max = 255) String displayName,
-                                            @NotBlank @Size(max = 255) String vendorName,
                                             @NotBlank @Size(max = 255) String storeName,
                                             @NotBlank @Size(max = 80) String storeCode) { }
     public record PasswordChangeRequest(@NotBlank String currentPassword, @NotBlank @jakarta.validation.constraints.Size(min = 8, max = 255) String newPassword) { }
-    public record ContextRequest(@jakarta.validation.constraints.NotNull Long vendorId,
-                                 @jakarta.validation.constraints.NotNull Long storeId) { }
-    public record ContextView(Long vendorId, Long storeId) { }
+    public record ContextRequest(@jakarta.validation.constraints.NotNull Long storeId) { }
+    public record ContextView(Long storeId) { }
 }

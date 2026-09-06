@@ -1,10 +1,10 @@
-# TindaKart PWA handover guide
+# TindaKart backend handover guide
 
 This guide covers the verified local deployment and the operating rules that must be confirmed before client rollout.
 
 ## Local startup
 
-1. Install Java 21, Node.js/npm, and PostgreSQL.
+1. Install Java 21 and PostgreSQL.
 2. Create the `tindakart` database and copy `.env.example` to the ignored root `.env`.
 3. Set database credentials and a strong initial admin password in `.env`.
 4. From the repository root, run:
@@ -16,15 +16,40 @@ This guide covers the verified local deployment and the operating rules that mus
 
    Flyway applies pending migrations on startup.
 
-5. In another terminal, run:
+5. Confirm `/api/health` and `/api/health/database` return `UP` before testing operations.
 
-   ```powershell
-   cd frontend
-   npm install
-   npm run dev
-   ```
+## Local PayMongo test mode
 
-Open `http://localhost:5173`. Confirm `/api/health` and `/api/health/database` return `UP` before testing operations.
+PayMongo checkout creation runs from the backend, so the frontend never receives
+the secret key. Add the test credentials to the ignored root `.env` file:
+
+```properties
+PAYMONGO_SECRET_KEY=sk_test_your_key
+PAYMONGO_WEBHOOK_SECRET=your_webhook_signing_secret
+PAYMONGO_BASE_URL=https://api.paymongo.com
+NGROK_HOST=https://your-ngrok-host.ngrok-free.app
+PAYMONGO_WEBHOOK_URL=https://your-ngrok-host.ngrok-free.app/api/billing/webhooks/paymongo
+```
+
+Start the backend and frontend normally. When a package or add-on checkout is
+started, TindaKart calls PayMongo from `localhost:8080` and redirects the browser
+to the returned hosted checkout URL. Test mode does not charge real money.
+
+To test the post-payment subscription update locally, expose the backend with a
+tunnel such as ngrok:
+
+```powershell
+ngrok http 8080
+```
+
+In the PayMongo dashboard, create a test webhook pointing to:
+`${PAYMONGO_WEBHOOK_URL}`. Subscribe to
+`checkout_session.payment.paid` and the relevant failed, cancelled, or expired
+events. Copy the webhook signing secret into `PAYMONGO_WEBHOOK_SECRET` and
+restart the backend after changing `.env`.
+
+Never commit `.env`, place a secret key in frontend code, or paste a live key
+into source control. Rotate a key immediately if it is exposed.
 
 If Java fails to start, `JAVA_HOME` must point to the JDK directory itself, such as `C:\Program Files\Java\jdk-21.0.12`, not its `bin` subdirectory.
 
@@ -68,7 +93,7 @@ For pre-migration data-quality review, run the read-only checks in [DATABASE_AUD
 - Login fails: confirm the username is enabled and the account has the expected role/store assignment; repeated failures temporarily lock the username.
 - A module is unavailable: check both the user's role permission and the vendor's active package entitlement.
 - POS cannot sell an item: check stock, expiration, store context, and package POS entitlement.
-- Receipt printing does not work: use browser print preview first; thermal printer/bridge support requires device acceptance testing.
+- Receipt printing does not work: verify the configured receipt output mode and complete the required device acceptance testing for thermal printer/bridge support.
 
 ## Deployment prerequisites
 
@@ -81,9 +106,6 @@ Recommended verification commands:
 ```powershell
 $env:GRADLE_USER_HOME = "$PWD\.gradle-home"
 .\gradlew.bat :backend:test --no-daemon --console=plain
-cd frontend
-.\node_modules\.bin\tsc.cmd -p tsconfig.app.json --noEmit --incremental false
-npx vite build --configLoader runner
 ```
 
 The normal test task excludes database-mutating integration tests. After configuring a disposable or backed-up local PostgreSQL database, run the opt-in multistore authorization check with:

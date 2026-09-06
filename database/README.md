@@ -1,6 +1,6 @@
 # TindaKart database migrations
 
-Database changes for the PWA/backend migration belong in this directory as ordered migration files.
+Database changes for the backend belong in this directory as ordered migration files.
 
 Rules:
 

@@ -185,7 +185,7 @@ public class StaffManagementController {
     }
 
     private void requireVendorAdmin(Authentication authentication, Long vendorId) {
-        if (!tenantAccessService.hasVendorRole(authentication, vendorId, "VENDOR_ADMIN")) {
+        if (!tenantAccessService.hasStoreRole(authentication, vendorId, "STORE_ADMIN")) {
             throw new AccessDeniedException("Vendor Admin permission is required");
         }
     }
