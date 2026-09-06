@@ -20,8 +20,8 @@ This guide covers the verified local deployment and the operating rules that mus
 
 ## Local PayMongo test mode
 
-PayMongo checkout creation runs from the backend, so the frontend never receives
-the secret key. Add the test credentials to the ignored root `.env` file:
+PayMongo checkout creation runs from the backend. Add the test credentials to
+the ignored root `.env` file:
 
 ```properties
 PAYMONGO_SECRET_KEY=sk_test_your_key
@@ -31,9 +31,9 @@ NGROK_HOST=https://your-ngrok-host.ngrok-free.app
 PAYMONGO_WEBHOOK_URL=https://your-ngrok-host.ngrok-free.app/api/billing/webhooks/paymongo
 ```
 
-Start the backend and frontend normally. When a package or add-on checkout is
-started, TindaKart calls PayMongo from `localhost:8080` and redirects the browser
-to the returned hosted checkout URL. Test mode does not charge real money.
+Start the backend normally. When a package or add-on checkout is started,
+TindaKart calls PayMongo from `localhost:8080`. Test mode does not charge real
+money.
 
 To test the post-payment subscription update locally, expose the backend with a
 tunnel such as ngrok:
@@ -48,8 +48,8 @@ In the PayMongo dashboard, create a test webhook pointing to:
 events. Copy the webhook signing secret into `PAYMONGO_WEBHOOK_SECRET` and
 restart the backend after changing `.env`.
 
-Never commit `.env`, place a secret key in frontend code, or paste a live key
-into source control. Rotate a key immediately if it is exposed.
+Never commit `.env` or paste a live key into source control. Rotate a key
+immediately if it is exposed.
 
 If Java fails to start, `JAVA_HOME` must point to the JDK directory itself, such as `C:\Program Files\Java\jdk-21.0.12`, not its `bin` subdirectory.
 
@@ -97,7 +97,7 @@ For pre-migration data-quality review, run the read-only checks in [DATABASE_AUD
 
 ## Deployment prerequisites
 
-Before client rollout, the owner must approve the vendor/store policy, roles, tax/receipt layout, payment methods, printer, offline behavior, and acceptance criteria. A deployment must additionally provide HTTPS, environment-injected secrets, scheduled database backups, monitoring/log retention, and a controlled pilot. These are not assumed to be complete from local verification.
+Before client rollout, the owner must approve the vendor/store policy, roles, tax/receipt layout, payment methods, printer, and acceptance criteria. A deployment must additionally provide HTTPS, environment-injected secrets, scheduled database backups, monitoring/log retention, and a controlled pilot. These are not assumed to be complete from local verification.
 
 The staging and production Spring profiles mark session cookies as Secure, HttpOnly, and SameSite=Lax. They must only be used behind HTTPS; local development keeps the Secure flag off so localhost sessions work.
 

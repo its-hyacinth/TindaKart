@@ -6,7 +6,7 @@
       "name": "TindaKart",
       "request": "launch",
       "mainClass": "com.ddev.TindaKart.App",
-      "projectName": "app",
+      "projectName": "backend"
     }
   ]
 }

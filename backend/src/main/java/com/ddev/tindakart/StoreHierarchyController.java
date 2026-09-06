@@ -43,6 +43,12 @@ public class StoreHierarchyController {
                 (rs, row) -> store(rs));
     }
 
+    @GetMapping("/super-admin/stores/{storeId}")
+    public StoreView store(@PathVariable Long storeId, Authentication authentication) {
+        requireSuperAdmin(authentication);
+        return findStore(storeId);
+    }
+
     @PostMapping("/super-admin/stores")
     @Transactional
     public ResponseEntity<StoreView> createStore(@Valid @RequestBody StoreRequest request,
